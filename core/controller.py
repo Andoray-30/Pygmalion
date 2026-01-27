@@ -233,6 +233,7 @@ class DiffuServoV4:
         hr_status = "[HR ON]" if self.params.get('enable_hr') else "[HR OFF]"
         state_tag = f"[{self.state}]"
         print(f"\n⚡ [Iter {self.iteration}] {state_tag} {hr_status} Steps={self.params['steps']}, CFG={self.params['cfg_scale']:.2f}")
+        print(f"⏳ 正在生成图片... (超时限制: {FORGE_TIMEOUT}秒)")
         
         try:
             resp = requests.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=self.params, timeout=FORGE_TIMEOUT)
