@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Pygmalion DiffuServo V4 主程序
+"""
 from core import DiffuServoV4
 
 if __name__ == "__main__":

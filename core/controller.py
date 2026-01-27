@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+DiffuServo V4 - 自适应扩散模型控制系统
+"""
 import time
 import os
 import requests
@@ -305,6 +310,8 @@ class DiffuServoV4:
             current_score = res.get('final_score', 0)
             concept = res.get('concept_score', 0)
             quality = res.get('quality_score', 0)
+            aesthetics = res.get('aesthetics_score', 0)
+            reasonableness = res.get('reasonableness_score', 0)
             
             # 安全检查：防止 -1.0 污染 Buffer
             if current_score < 0:
@@ -316,6 +323,8 @@ class DiffuServoV4:
                 'score': current_score,
                 'concept': concept,
                 'quality': quality,
+                'aesthetics': aesthetics,
+                'reasonableness': reasonableness,
                 'state': self.state,
                 'image_path': img_path,
                 'params_summary': {

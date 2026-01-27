@@ -38,8 +38,8 @@ DEEPSEEK_MODEL = _get_env("DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V3")
 DEEPSEEK_MAX_RETRIES = _get_int("DEEPSEEK_MAX_RETRIES", 5)
 DEEPSEEK_TIMEOUT = _get_int("DEEPSEEK_TIMEOUT", 30)
 
-# Judge (Qwen)
-JUDGE_MODEL_NAME = _get_env("JUDGE_MODEL_NAME", "Pro/Qwen/Qwen2.5-VL-7B-Instruct")
+# Judge (Qwen) - 升级到72B模型以获得更强的推理和物理合理性判断能力
+JUDGE_MODEL_NAME = _get_env("JUDGE_MODEL_NAME", "Qwen/Qwen2.5-VL-72B-Instruct")
 JUDGE_MAX_RETRIES = _get_int("JUDGE_MAX_RETRIES", 3)
 JUDGE_TIMEOUT = _get_int("JUDGE_TIMEOUT", 30)
 
