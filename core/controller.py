@@ -221,7 +221,8 @@ class DiffuServoV4:
     
     def generate(self):
         """生成图片"""
-        if self.state in [self.STATE_INIT, self.STATE_Eself.theme)
+        if self.state in [self.STATE_INIT, self.STATE_EXPLORE]:
+            core_prompt = self.brain.brainstorm_prompt(self.theme)
             quality_suffix = ", 8k resolution, masterpiece, photorealistic, sharp focus, highly detailed, cinematic lighting"
             self.params['prompt'] = f"{core_prompt}, {quality_suffix}"
             print(f"✨ [DeepSeek创意] Prompt已更新\n")
@@ -260,7 +261,6 @@ class DiffuServoV4:
             filename = f"{theme_safe}_{timestamp}_iter{self.iteration}.png"
             path = os.path.join(theme_dir, filename)
             
-            path = f"{OUTPUT_DIR}/gen_{self.iteration}.png"
             with open(path, "wb") as f:
                 f.write(img_data)
             return path
@@ -288,7 +288,15 @@ class DiffuServoV4:
             if not img_path:
                 continue
             
-            res = rate_image(img_path, "Cyberpunk Neon City")
+            # 🎯 动态权重：根据当前状态调整评分关注点
+            if self.state in [self.STATE_INIT, self.STATE_EXPLORE]:
+                concept_weight = 0.7  # 探索阶段优先概念匹配
+            elif self.state == self.STATE_OPTIMIZE:
+                concept_weight = 0.3  # 优化阶段优先画质提升
+            else:  # FINETUNE / CONVERGED
+                concept_weight = 0.5  # 精细调优阶段平衡考虑
+            
+            res = rate_image(img_path, self.theme, concept_weight=concept_weight)
             if not isinstance(res, dict) or 'final_score' not in res:
                 print("⚠️ 评分失败，跳过")
                 continue
@@ -299,9 +307,8 @@ class DiffuServoV4:
             
             # 安全检查：防止 -1.0 污染 Buffer
             if current_score < 0:
-                 image_path': img_path,
-                'print("⚠️ 检测到无效分数，跳过梯度更新")
-                 continue
+                print("⚠️ 检测到无效分数，跳过梯度更新")
+                continue
 
             self.history.append({
                 'iter': self.iteration,
@@ -309,6 +316,7 @@ class DiffuServoV4:
                 'concept': concept,
                 'quality': quality,
                 'state': self.state,
+                'image_path': img_path,
                 'params_summary': {
                     'steps': self.params['steps'],
                     'cfg_scale': self.params['cfg_scale'],
@@ -345,21 +353,21 @@ class DiffuServoV4:
     def _print_final_report(self, converged, early_stopped):
         print("\n" + "="*70)
         if converged:
-            print("✅ 结果：达到目标分数" for h in self.history if h['score'] == self.best_score]
-            if best_iter_list:
-                best_entry = best_iter_list[0]
-                print(f"📍 最优方案来自第 {best_entry['iter']} 代")
-                print(f"💾 最优图片路径: {best_entry.get('image_path', 'N/A')}_SCORE})")
+            print("✅ 结果：达到目标分数")
+        elif early_stopped:
+            print("⏸️ 结果：早停触发（收敛判定）")
+        else:
+            print("⏹️ 结果：达到最大迭代次数")
         
         print("="*70)
         print(f"🏆 最优分数: {self.best_score:.2f}")
         
         if self.best_score > 0:
-            best_iter_list = [h['iter'] for h in self.history if h['score'] == self.best_score]
+            best_iter_list = [h for h in self.history if h['score'] == self.best_score]
             if best_iter_list:
-                best_iter = best_iter_list[0]
-                print(f"📍 最优方案来自第 {best_iter} 代")
-                print(f"💾 最优图片路径: {OUTPUT_DIR}/gen_{best_iter}.png")
+                best_entry = best_iter_list[0]
+                print(f"📍 最优方案来自第 {best_entry['iter']} 代")
+                print(f"💾 最优图片路径: {best_entry.get('image_path', 'N/A')}")
         
         print("="*70)
 

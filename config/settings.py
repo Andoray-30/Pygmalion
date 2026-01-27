@@ -42,3 +42,7 @@ DEEPSEEK_TIMEOUT = _get_int("DEEPSEEK_TIMEOUT", 30)
 JUDGE_MODEL_NAME = _get_env("JUDGE_MODEL_NAME", "Pro/Qwen/Qwen2.5-VL-7B-Instruct")
 JUDGE_MAX_RETRIES = _get_int("JUDGE_MAX_RETRIES", 3)
 JUDGE_TIMEOUT = _get_int("JUDGE_TIMEOUT", 30)
+
+# Logging
+LOG_LEVEL = _get_env("LOG_LEVEL", "INFO")
+LOG_FILE = _get_env("LOG_FILE", "pygmalion.log")
