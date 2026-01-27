@@ -70,7 +70,12 @@ class DiffuServoV4:
         self.convergence_patience = CONVERGENCE_PATIENCE
         self.convergence_threshold = CONVERGENCE_THRESHOLD
         
-        # 🔵 自适应学习率
+        # � FINETUNE阶段低分回退机制
+        self.finetune_low_score_count = 0  # 连续低分计数
+        self.finetune_low_score_threshold = 0.7  # 低分阈值
+        self.finetune_low_score_patience = 3  # 连续低分次数达到3次后回退
+        
+        # �🔵 自适应学习率
         self.Kp_steps = 1.5
         self.Kp_cfg = 0.6
         self.adaptive_factor = 1.0
@@ -100,13 +105,30 @@ class DiffuServoV4:
             elif current_score > 0.85:
                 print("⚡ 接近目标分数，进入精细调优阶段")
                 self.state = self.STATE_FINETUNE
+                self.finetune_low_score_count = 0  # 重置FINETUNE低分计数
         
         elif self.state == self.STATE_OPTIMIZE:
             if quality > 0.82 and current_score > 0.82:
                 print("📍 HR已充分优化，锁定参数只改Seed")
                 self.state = self.STATE_FINETUNE
+                self.finetune_low_score_count = 0  # 重置FINETUNE低分计数
         
         elif self.state == self.STATE_FINETUNE:
+            # 🔄 FINETUNE回退机制：连续3次低分则回退到OPTIMIZE重新寻找参数
+            if current_score < self.finetune_low_score_threshold:
+                self.finetune_low_score_count += 1
+                print(f"⚠️ [FINETUNE] 分数过低({current_score:.2f} < {self.finetune_low_score_threshold}), 连续低分计数: {self.finetune_low_score_count}/{self.finetune_low_score_patience}")
+                
+                if self.finetune_low_score_count >= self.finetune_low_score_patience:
+                    print(f"🔄 [FINETUNE] 连续{self.finetune_low_score_patience}次分数低于{self.finetune_low_score_threshold}，回退到OPTIMIZE阶段重新寻找参数")
+                    self.state = self.STATE_OPTIMIZE
+                    self.params['enable_hr'] = True
+                    self.finetune_low_score_count = 0
+            else:
+                # 分数恢复正常，重置计数
+                self.finetune_low_score_count = 0
+            
+            # 收敛条件不变
             if current_score >= TARGET_SCORE:
                 print("🏆 收敛成功！")
                 self.state = self.STATE_CONVERGED
@@ -115,59 +137,12 @@ class DiffuServoV4:
         return False
     
     def adaptive_control(self, result):
-        """自适应P-Control"""
+        """自适应P-Control（依赖 run() 中的 score_buffer.append）"""
         current_score = result.get('final_score', 0)
         concept = result.get('concept_score', 0)
         quality = result.get('quality_score', 0)
         
-        # score_buffer 已经在 main loop 中更新了，但 adaptive_control 逻辑依赖 gradient
-        # 注意：原代码 adaptive_control 中也做了 score_buffer append，
-        # 但在 run 方法中也 append 了一次? 
-        # 检查原代码:
-        # run(): append to history. calls adaptive_control.
-        # adaptive_control(): appends to score_buffer.
-        # 所以 score_buffer 由 adaptive_control 维护。
-        # 我需要保持一致性。
-        
-        # Re-reading original `run`:
-        # self.score_buffer.append(current_score) BEFORE calling adaptive_control.
-        # adaptive_control DOES NOT append in original code?
-        # WAIT. Let's check original `main_loop.py` content again.
-        
-        # Original `run`:
-        # self.score_buffer.append(current_score)
-        # self.adaptive_control(res)
-        
-        # Original `adaptive_control`:
-        # self.score_buffer.append(current_score)  <-- YES IT DOES!
-        # This means it was appending TWICE per iteration????
-        # Let's check the read file content.
-        
-        # Snippet 1 (Lines 1-200):
-        # def adaptive_control(self, result):
-        #    ...
-        #    self.score_buffer.append(current_score)
-        
-        # Snippet 2 (Lines 200-442):
-        # in run():
-        #    self.score_buffer.append(current_score)
-        #    ...
-        #    self.adaptive_control(res)
-        
-        # Yes, it WAS appending twice. This is a BUG in the original code. 
-        # If I fix it, behavior might change slightly (buffer fills slower).
-        # But `score_buffer` is just last 5 scores.
-        # If I append twice, I just fill it with duplicates effectively if valid logic used it.
-        # But actually it appends the SAME score twice.
-        # So score_buffer = [s1, s1, s2, s2, ...]
-        # compute_gradient uses score_buffer[-3:]. 
-        # So it sees [s_prev, s_curr, s_curr].
-        # Gradient = (s_curr - s_prev) + (s_curr - s_curr) ...
-        # This definitly messed up the gradient calculation!
-        # It made the gradient effectively smaller? Or just weird.
-        # I should FIX THIS. I will only append in `run` (or adaptive_control, but run seems better place as it's the loop).
-        # I'll remove append from `adaptive_control` here based on better design principle.
-        
+        # 注意：score_buffer 在 run() 方法中追加，此处不重复追加（避免梯度污染）
         avg_grad, volatility = compute_gradient(self.score_buffer)
         
         # 🔑 自适应学习率调整

@@ -41,9 +41,10 @@ class CreativeDirector:
         
         Response Rules:
         1. Output pure prompt text ONLY. No "Here is the prompt", no markdown, no quotes.
-        2. Format: English keywords, comma-separated.
-        3. Content requirements: Detailed visual elements, lighting, style, composition.
-        4. Length: Keep it dense and rich (approx 50-80 words).
+        2. Do not use markdown code blocks (no ```text, no ``` symbols).
+        3. Format: English keywords, comma-separated.
+        4. Content requirements: Detailed visual elements, lighting, style, composition.
+        5. Length: Keep it dense and rich (approx 50-80 words).
         """
 
         for attempt in range(DEEPSEEK_MAX_RETRIES):
