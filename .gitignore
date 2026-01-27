@@ -1,2 +1,24 @@
-# Ignore Forge folder
+# Environment variables (contains API keys & sensitive data)
+.env
+.env.local
+.env.*.local
+
+# Forge folder
 Forge/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output
+evolution_history/
