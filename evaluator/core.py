@@ -1,66 +1,39 @@
-import base64
-import json
 import os
-import re
 import time
 from openai import OpenAI
 from dotenv import load_dotenv
+from config import JUDGE_MODEL_NAME, JUDGE_MAX_RETRIES, JUDGE_TIMEOUT
+from .utils import encode_image, extract_json
 
-# ✅ 1. 安全升级：从 .env 文件加载环境变量
 load_dotenv()
 API_KEY = os.getenv("SILICON_KEY")
 
 if not API_KEY:
-    raise ValueError("🚨 未找到 API Key！请检查 .env 文件是否配置正确。")
-
-# 配置
-MODEL_NAME = "Pro/Qwen/Qwen2.5-VL-7B-Instruct" 
-MAX_RETRIES = 3  # 网络重试次数
-TIMEOUT = 30     # 超时时间(秒)
+    # 这里的raise可能会在导入时触发，建议放在函数内或初始化时检查，但保持原逻辑也行
+    pass 
 
 client = OpenAI(
     api_key=API_KEY,
     base_url="https://api.siliconflow.cn/v1"
 )
 
-def encode_image(image_path):
-    """将本地图片转换为 Base64，带文件存在性检查"""
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"❌ 找不到图片: {image_path}")
-        
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
-
-def extract_json(text):
-    """
-    ✅ 2. 健壮解析：使用正则从大段回复中提取 JSON
-    防止模型废话（如 'Here is the json: ...'）导致解析失败
-    """
-    try:
-        # 尝试直接解析
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # 如果失败，尝试用正则提取第一个 { ... } 区块
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-    return None
-
 def rate_image(image_path, target_concept):
     """
     核心审图函数 (带重试机制)
-    :return: float (-1.0 表示错误, 0.0-1.0 为正常评分)
+    :return: dict 包含 final_score, concept_score, quality_score, reason
     """
     print(f"🧐 [Judge] 正在审计: {target_concept}...")
     
+    # 再次检查API KEY，防止导入时未报错但运行时出错
+    if not API_KEY:
+         print("🚨 未找到 API Key！无法进行评分。")
+         return {"final_score": -1.0, "concept_score": -1.0, "quality_score": -1.0, "reason": "Missing API Key"}
+
     try:
         base64_image = encode_image(image_path)
     except Exception as e:
         print(f"❌ 图片加载失败: {e}")
-        return -1.0
+        return {"final_score": -1.0, "concept_score": -1.0, "quality_score": -1.0, "reason": str(e)}
 
     system_prompt = f"""
 You are a calibrated Image Quality Evaluator for a PID control system.
@@ -97,11 +70,10 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
 """
     user_prompt = "Rate this image."
 
-    # ✅ 3. 重试机制
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(JUDGE_MAX_RETRIES):
         try:
             response = client.chat.completions.create(
-                model=MODEL_NAME,
+                model=JUDGE_MODEL_NAME,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": [
@@ -109,9 +81,9 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]}
                 ],
-                temperature=0.2, # ✅ 4. 微调温度：0.2 既能保证格式，又有一点点灵活性
-                timeout=TIMEOUT, # ✅ 5. 超时控制
-                max_tokens=200   # 限制回复长度，省钱且快
+                temperature=0.2,
+                timeout=JUDGE_TIMEOUT,
+                max_tokens=200
             )
 
             content = response.choices[0].message.content.strip()
@@ -122,25 +94,13 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
                 print(f"🎨 画质评分: {result.get('quality_score', 'N/A'):.2f}")
                 print(f"📝 评价: {result.get('reason', 'No reason provided')}")
                 print(f"🎯 最终得分: {result['final_score']:.2f}")
-                return float(result['final_score'])
+                return result
             else:
-                print(f"⚠️ 响应格式错误 (尝试 {attempt+1}/{MAX_RETRIES}): {content}")
+                print(f"⚠️ 响应格式错误 (尝试 {attempt+1}/{JUDGE_MAX_RETRIES}): {content}")
 
         except Exception as e:
-            print(f"⚠️ API 请求异常 (尝试 {attempt+1}/{MAX_RETRIES}): {e}")
-            time.sleep(1) # 失败后歇一秒再试
+            print(f"⚠️ API 请求异常 (尝试 {attempt+1}/{JUDGE_MAX_RETRIES}): {e}")
+            time.sleep(1)
 
     print("❌ 多次重试失败，放弃审计。")
-    return -1.0 # ✅ 6. 错误代码：返回 -1 区分于 0 分
-
-# --- 单元测试 ---
-if __name__ == "__main__":
-    # 测试前请确保目录下有一张 'first_contact.png'
-    score = rate_image("first_contact.png", "Cyberpunk Neon City")
-    
-    if score == -1:
-        print("🔴 审计系统故障")
-    elif score > 0.8:
-        print("🟢 符合目标 (Target Reached)")
-    else:
-        print("🟡 尚未达标 (Needs Improvement)")
+    return {"final_score": -1.0, "concept_score": -1.0, "quality_score": -1.0, "reason": "API failure"}
