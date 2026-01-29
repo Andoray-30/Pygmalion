@@ -1,271 +1,103 @@
-# 🎨 Pygmalion DiffuServo V4
+﻿#  Pygmalion AI
 
-**智能自适应图像生成系统** - AI 驱动的提示词优化 + 多模型评分 + 实时流式显示
+**智能自适应图像生成系统** - AI 驱动的提示词优化 + 多模型评分 + 现代化 Web UI
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 ---
 
-## ⚡ 快速开始
+##  快速开始
 
-详见 [QUICK_START.md](QUICK_START.md) (5 分钟快速上手)
+只需一行命令即可启动整个系统：
+```powershell
+.\run_system.bat
+```
+详细安装与配置指南请参阅 [QUICKSTART.md](QUICKSTART.md)
 
-## ✨ 核心特性
+---
+
+##  核心特性
 
 | 特性 | 说明 |
 |------|------|
-| 🧠 AI 提示词优化 | DeepSeek 多维度创意生成 + 智能回滚 |
-| 📊 多模型评分 | 4×72B+ 模型自动轮换 (每150次) |
-| 🌐 实时流式 | Gradio Web UI, 每个迭代即时推送 |
-| 💾 会话恢复 | JSON 存储, 页面刷新自动恢复 |
-| 🎯 自适应控制 | INIT→EXPLORE→OPTIMIZE→FINETUNE→CONVERGED |
-| 🔄 智能早停 | 收敛时自动停止, 节省资源 |
-| ⚙️ API 自动降级 | 免费→付费, 429错误自动切换 |
+|  **AI 创意引擎** | 集成 DeepSeek-V3 自动进行提示词工程与迭代优化 |
+|  **多模型评分** | 472B+ 级多模态模型 (Qwen2.5-VL 等) 自动轮换评分 |
+|  **对话式 UI** | 类似 Gemini 的现代化 Web 界面，支持实时反馈与交互 |
+|  **WebSocket 通信** | 基于 Socket.IO 的双向低延迟实时消息推送 |
+|  **最优解收敛** | 自动在多轮迭代中收敛至最佳画质与主题契合度 |
+|  **全自定义配置** | 支持在 Web 界面直接配置 API 密钥、模型 ID 与自定义网关 |
 
 ---
 
-## 📂 项目结构
+##  项目结构 (pkg 架构)
 
-```
+```text
 Pygmalion/
-├── webui/app.py              # 🌐 Web UI (Gradio)
-├── core/
-│   ├── controller.py         # DiffuServoV4 控制器
-│   ├── state_manager.py      # 会话管理
-│   └── ...
-├── config/settings.py        # 全局配置
-├── evaluator/core.py         # API 管理 + 模型轮换
-├── creator/director.py       # DeepSeek 提示词生成
-└── tests/                    # 单元测试
-```
+  launch.py              # 系统入口
+  run_system.bat         # 一键启动脚本
+  requirements.txt       # 项目依赖
+  QUICKSTART.md          # 快速入门指南
 
-详见 [config/README.md](config/README.md) | [core/README.md](core/README.md)
+  pkg/                   # 核心代码包
+     interface/         # 接口层 (Web/WebSocket)
+       server.py         # Flask-SocketIO 后端
+        web/           # 前端资源 (HTML/CSS/JS)
+   
+     system/            # 系统层 (Logic/Modules)
+       engine.py         # DiffuServoV4 核心控制器
+        modules/       # 功能模块 (Creator/Evaluator)
+   
+     infrastructure/    # 基础设施层 (Config/Utils)
+         config/        # 全局配置集
 
----
-
-## 🎮 使用指南
-
-1. 启动: `python webui/app.py` 
-2. 访问: http://localhost:7861
-3. 输入主题 → 设置参数 → 点击开始生成
-4. 每个迭代即时显示结果和分数
-5. 切换"会话恢复"标签页查看历史
-
----
-
-## 🔧 配置
-
-### API 配额
-
-| 服务 | 额度 | 说明 |
-|------|------|------|
-| ModelScope | 2000次/天 | 4个模型, 每150次切换 |
-| SiliconFlow | 按月计费 | 429错误自动降级 |
-| DeepSeek | 自定义 | 提示词生成 |
-
-### 模型轮换
-
-4个评分模型自动轮换:
-- Qwen2.5-VL-72B-Instruct (主力)
-- QVQ-72B-Preview (量化, 速快)
-- InternVL3_5-241B (超强)
-- Qwen3-VL-235B (最新)
-
-### 生成参数调优
-
-在 `config/settings.py` 中配置:
-
-```python
-# DeepSeek 创意提示词参数
-DEEPSEEK_TEMPERATURE = 0.8          # 创意度 (0.0-1.0)
-DEEPSEEK_TOP_P = 0.9                # 多样性 (0.0-1.0)
-
-# 自适应控制参数
-CONVERGENCE_THRESHOLD = 0.003       # 分数改进阈值
-CONVERGENCE_PATIENCE = 5            # 早停耐心值 (迭代数)
-
-# 模型轮换
-JUDGE_MODEL_ROTATION_ENABLED = True
-JUDGE_MODEL_ROTATION_INTERVAL = 150
+  evolution_history/     # 图片生成演进记录 (输出目录)
+  Forge/                 # Stable Diffusion 后端集成目录
 ```
 
 ---
 
----
+##  评分模型轮换系统
 
-## 📊 会话数据格式
+为了最大化利用免费 API 额度并保证评分精度，系统内置了模型轮换机制：
 
-```json
-{
-  "session_id": "gen_1706555920123",
-  "theme": "enchanted forest",
-  "status": "completed",
-  "best_score": 0.923,
-  "iterations": [...]
-}
-```
+- **主力模型**: `Qwen2.5-VL-72B-Instruct`
+- **轮换池**: 包括 `QVQ-72B-Preview`, `InternVL3.5`, `Qwen3-VL` 等。
+- **机制**: 默认每 150 次调用自动切换模型，充分利用 ModelScope 的 2000次/天 免费额度。
+- **降级**: 当 ModelScope 达到限额或不可用时，自动 Fallback 到 SiliconFlow 付费接口。
 
 ---
 
-## ⚠️ 常见问题
+##  实时消息协议
 
-| 问题 | 解决方案 |
-|------|---------|
-| 无法实时显示 | 重启 Web UI: `python webui/app.py` |
-| 429 错误频繁 | 检查 SILICONFLOW_API_KEY 是否配置 |
-| 生成质量差 | 提高目标分数 (0.88-0.92) 或迭代次数 |
-
----
-
-## 📄 许可证
-
-[MIT License](LICENSE)
-
-## 🔗 更多资源
-
-- 🐙 [GitHub Issues](../../issues)
-- 📚 [详细文档](config/README.md)
-- 🧪 [测试代码](tests/)
-
-
-├── main.py          # 主程序
-├── app.py           # Web UI
-├── config/          # API 配置、参数设置 → [README](config/README.md)
-├── core/            # 核心控制逻辑 → [README](core/README.md)
-├── creator/         # 提示词生成 → [README](creator/README.md)
-├── evaluator/       # 多维度评分 → [README](evaluator/README.md)
-├── integrations/    # 第三方集成 → [README](integrations/README.md)
-└── evolution_history/  # 结果存档 → [README](evolution_history/README.md)
-```
-
-**详细文档**: 查看各模块文件夹中的 README.md
+系统通过 WebSocket 推送以下核心事件：
+- `status_update`: 全局运行状态
+- `suggestion`: DeepSeek 提供的创意优化建议
+- `image_generated`: 单次迭代图片生成路径
+- `evaluation`: 多维度（画质、美学、合理性等）详细评分反馈
+- `score_update`: 当次迭代分数及是否破纪录的状态更新
+- `completion`: 最终生成报告
 
 ---
 
-## 🔄 工作流程
+##  后端技术栈
 
-```
-主题输入 (enchanted forest)
-    ↓
-[DeepSeek] 生成初始提示词
-    ↓
-[SDXL Turbo] 1-step 图像生成 (4-5s)
-    ↓
-[评分系统] 4D 评分 (0.0-1.0)
-    ↓
-目标达成? → 是 → 完成 ✅
-    ↓ 否
-迭代 ≤ 5? → EXPLORE (创意探索)
-    ↓           ├─ 颜色维度
-    ↓           ├─ 光影维度
-    ↓           └─ 构图维度
-迭代 > 5? → OPTIMIZE (参数调优)
-                ├─ HR Scale (1.0→1.8)
-                └─ CFG Scale (1.0→2.0)
-    ↓
-连续 5 步无进展? → 早停 🛑
-```
+- **Web 框架**: Flask & Flask-SocketIO
+- **核心逻辑**: Python 3.10+
+- **生成引擎**: DiffuServo Architecture (集成 Stable Diffusion WebUI Forge)
+- **大模型支持**: DeepSeek-V3 (创意), Qwen2.5-VL-72B (视觉评分)
 
 ---
 
-## 📊 性能指标
+##  更新日志
 
-| 指标 | 值 | 说明 |
-|------|-----|-----|
-| **最高分** | 0.86 | 当前最佳表现 |
-| **平均分** | 0.84 | 稳定收敛范围 |
-| **生成速度** | 4-5s | SDXL Turbo 单步 |
-| **总耗时** | 15-30 分钟 | 完整迭代周期 |
-| **API 响应** | 6-7s | ModelScope 免费 API |
+### [1.1.0] - 2026-01-29
+-  **架构重构**: 迁移至 `pkg` 命名空间结构。
+-  **UI 升级**: 实现 Google Material Design / Gemini 风格对话界面。
+-  **设置面板**: 新增 Web 端 API 与模型自定义配置功能。
+-  **反馈循环**: 修复了迭代计数与评分显示的准确性问题。
 
 ---
 
-## ⚙️ 核心参数
-
-| 参数 | 值 | 说明 |
-|------|-----|-----|
-| **Steps** | 1 | SDXL Turbo 固定 (不调整) |
-| **CFG** | 1.0-2.0 | 提示词遵循度 (可微调) |
-| **HR Scale** | 1.0-2.0 | 高清修复倍率 (渐进提升) |
-| **Target Score** | 0.9 | 目标评分阈值 |
-| **Max Iterations** | 30 | 最大迭代次数 |
-
-修改参数: 编辑 `config/settings.py`
-
----
-
-## 🔍 查看结果
-
-```bash
-# 查看最新生成
-ls evolution_history/{主题}/​*.png
-
-# 查看元数据
-cat evolution_history/{主题}/metadata.json
-
-# 查看最佳图像
-cat evolution_history/{主题}/metadata.json | jq '.best_image'
-```
-
-详见: [evolution_history/README.md](evolution_history/README.md)
-
----
-
-## 🚨 常见问题
-
-| 问题 | 解决方案 |
-|------|---------|
-| API 连接失败 | 检查 `.env` 密钥和网络连接 |
-| 分数卡在 0.86 | 这是系统物理极限，早停是正常行为 |
-| 生成速度慢 | ModelScope API 可能拥堵，会自动切换到 SiliconFlow |
-| 显存不足 | 编辑 `config/settings.py`，降低批处理大小 |
-
-更多问题: 查看对应模块的 README.md
-
----
-
-## 📚 学习路径
-
-**新手**:
-1. 阅读本文档 (5 分钟)
-2. 配置 `.env` 并运行 `python main.py`
-3. 查看 `evolution_history/` 中的结果
-
-**开发者**:
-1. 查看各模块 README.md 了解细节
-2. 阅读 `config/settings.py` 了解可调参数
-3. 研究 `core/controller.py` 了解控制逻辑
-
-**优化者**:
-1. 查看 [creator/README.md](creator/README.md) 学习提示词优化
-2. 查看 [evaluator/README.md](evaluator/README.md) 理解评分机制
-3. 根据需要调整 `config/settings.py` 参数
-
----
-
-## 🛠️ 技术栈
-
-- **Python**: 3.8+
-- **生成模型**: SDXL Turbo (1-step)
-- **提示词 AI**: DeepSeek-V3
-- **评分 API**: ModelScope (免费) / SiliconFlow (付费)
-- **控制算法**: DiffuServoV4 (PID + 状态机 + 智能早停)
-
----
-
-## 📝 版本信息
-
-**Current Version**: v4.0 (2026-01-29)
-
-**核心改进**:
-- ✅ SDXL Turbo 1-step 锁定 (步数不再调整)
-- ✅ HR Scale 渐进优化策略 (1.0 → 1.8)
-- ✅ CFG Scale 微调机制 (基于评分梯度)
-- ✅ 智能早停 (连续 5 步无进展自动停止)
-- ✅ 双 API 支持 (免费 + 付费自动切换)
-
----
-
-**🎨 开始创作！** ✨
-
+##  开源协议
+基于 MIT 协议开源。详见 [LICENSE](LICENSE)

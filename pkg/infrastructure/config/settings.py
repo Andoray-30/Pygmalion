@@ -105,14 +105,14 @@ MODEL_CONFIGS = {
         "enable_hr": False    # 探索期不开HR节省时间
     },
     "RENDER": {
-        "steps": 5,           # Juggernaut XL 黄金步数（4-6最优，5稳定）
-        "cfg_scale": 1.5,     # SDXL摄影级推荐值
+        "steps": 20,           # 提高步数以获得更高画质，解决模糊问题
+        "cfg_scale": 7.0,     # 标准 CFG 值提高色彩对比度
         "sampler": "DPM++ 2M Karras",  # SDXL推荐采样器
         "scheduler": "Karras",
         "enable_hr": True,    # HR高清处理激活
-        "hr_scale": 2.0,      # 2倍放大（1024→1536/1280更清晰）
-        "hr_second_pass_steps": 3,   # XL模型3步已足够
-        "denoising_strength": 0.35
+        "hr_scale": 1.5,      # 1.5倍放大更稳健
+        "hr_second_pass_steps": 10,  # 更多重绘步数
+        "denoising_strength": 0.4
     },
     "ANIME": {
         "steps": 28,          # Animagine 推荐步数（20-30最优）

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket.IO 测试</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Socket.IO 连接测试</h1>
+    <p>打开浏览器控制台查看日志</p>
+    
+    <script>
+        const socket = io('http://localhost:5000');
+        
+        socket.on('connect', () => {
+            console.log('✅ Socket.IO 已连接，SID:', socket.id);
+            
+            // 发送测试请求
+            setTimeout(() => {
+                console.log('📤 发送 start_generation...');
+                socket.emit('start_generation', {
+                    theme: '测试猫娘',
+                    target_score: 0.85,
+                    max_iterations: 2,
+                    quick_mode: false
+                });
+            }, 500);
+        });
+        
+        socket.on('session_created', (data) => {
+            console.log('✅ session_created:', data);
+        });
+        
+        socket.on('suggestion', (data) => {
+            console.log('💡 suggestion:', data);
+        });
+        
+        socket.on('iteration_start', (data) => {
+            console.log('🎨 iteration_start:', data);
+        });
+        
+        socket.on('image_generated', (data) => {
+            console.log('🖼️ image_generated:', data);
+        });
+        
+        socket.on('score_update', (data) => {
+            console.log('📊 score_update:', data);
+        });
+        
+        socket.on('completion', (data) => {
+            console.log('✅ completion:', data);
+        });
+        
+        socket.on('error', (data) => {
+            console.log('❌ error:', data);
+        });
+        
+        socket.on('disconnect', () => {
+            console.log('⚠️ Socket.IO 已断开');
+        });
+    </script>
+</body>
+</html>

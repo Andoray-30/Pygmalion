@@ -3,7 +3,7 @@ import time
 import random
 import httpx
 from dotenv import load_dotenv
-from config import DEEPSEEK_MODEL, DEEPSEEK_MAX_RETRIES, DEEPSEEK_TIMEOUT
+from pkg.infrastructure.config import DEEPSEEK_MODEL, DEEPSEEK_MAX_RETRIES, DEEPSEEK_TIMEOUT
 
 # 加载环境变量
 load_dotenv()
@@ -222,7 +222,9 @@ Output JSON ONLY (no markdown):
            - If concept is "Robot" + "Material": Focus on rust, chrome, oil.
            - If concept is "Tequila Sunrise" + "Composition": Focus on cocktail glass, layered colors, NOT landscape.
         5. Length: Dense and rich (approx 40-70 words).
-        6. If feedback provided: Incorporate suggestions from previous iteration score and feedback.
+        6. If feedback provided: Incorporate suggestions or corrections. 
+           - **CRITICAL**: If feedback identifies a PROBLEM (e.g. 'looks like a wall', 'blurry', 'bad eyes'), your prompt must EXPLICITLY solve it through descriptive keywords (e.g. 'deep depth of field', 'volumetric 3D space', 'razor sharp detail').
+           - Never repeat negative feedback in the prompt; instead, provide the positive solution.
         """
 
         for attempt in range(DEEPSEEK_MAX_RETRIES):

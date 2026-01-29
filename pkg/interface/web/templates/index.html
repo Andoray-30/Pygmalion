@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pygmalion AI 图片生成工作室</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">🎨 Pygmalion</div>
+            <div class="nav-links">
+                <a href="#" class="nav-link active" id="nav-generate">生成</a>
+                <a href="#" class="nav-link" id="nav-history">历史</a>
+                <a href="#" class="nav-link" id="nav-settings">设置</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <!-- 左侧控制面板 -->
+        <aside class="sidebar">
+            <div class="panel">
+                <h2>⚙️ 参数配置</h2>
+                
+                <!-- 主题输入已移动到聊天框 -->
+                <div class="form-group" style="display: none;">
+                    <label for="theme">🎭 生成主题</label>
+                    <input type="text" id="theme" class="input-field" 
+                           placeholder="例: enchanted forest" 
+                           value="enchanted forest">
+                </div>
+
+                <div class="form-group">
+                    <label for="target-score">🎯 目标分数</label>
+                    <div class="slider-container">
+                        <input type="range" id="target-score" min="0.70" max="0.95" 
+                               step="0.01" value="0.85" class="slider">
+                        <span class="slider-value" id="score-display">0.85</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="max-iter">🔄 最大迭代次数</label>
+                    <div class="slider-container">
+                        <input type="range" id="max-iter" min="5" max="30" 
+                               step="1" value="5" class="slider">
+                        <span class="slider-value" id="iter-display">5</span>
+                    </div>
+                </div>
+
+                <div class="form-group toggle-group">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="quick-mode" checked>
+                        <span class="slider-round"></span>
+                    </label>
+                    <span class="toggle-label">⚡ 快速模式</span>
+                </div>
+
+                <button id="start-btn" class="btn-primary" style="display: none;">
+                    🚀 开始生成
+                </button>
+
+                <div class="info-box">
+                    <p><strong>💡 提示:</strong></p>
+                    <ul>
+                        <li>目标分数越高，质量越好但耗时更久</li>
+                        <li>快速模式会减少迭代次数</li>
+                        <li>实时显示生成过程</li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 中央对话区域 -->
+        <main class="chat-area">
+            <div class="chat-header">
+                <h1>🎨 AI 图片生成对话</h1>
+                <p id="session-id" class="session-info">等待开始...</p>
+            </div>
+
+            <!-- 消息容器 -->
+            <div class="chat-messages" id="chat-messages">
+                <div class="welcome-message">
+                    <h2>👋 欢迎使用 Pygmalion</h2>
+                    <p>设置参数后点击"开始生成"，观看 AI 创意提示、模型评判和图片生成的完整对话过程</p>
+                </div>
+            </div>
+
+            <!-- 输入区域 -->
+            <div class="chat-input-area">
+                <div class="input-controls">
+                    <textarea id="custom-input" class="chat-input" 
+                              placeholder="有任何想说的吗？（可选）" 
+                              rows="2"></textarea>
+                    <button id="send-btn" class="btn-send">📤 发送</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 右侧结果面板 -->
+        <aside class="result-panel">
+            <div class="panel sticky">
+                <h2>📊 实时结果</h2>
+                
+                <div class="result-item">
+                    <div class="result-label">状态</div>
+                    <div class="result-value" id="status">等待中</div>
+                </div>
+
+                <div class="result-item">
+                    <div class="result-label">最优分数</div>
+                    <div class="result-value" id="best-score">-</div>
+                </div>
+
+                <div class="result-item">
+                    <div class="result-label">当前迭代</div>
+                    <div class="result-value" id="current-iter">-</div>
+                </div>
+
+                <!-- 进度条 -->
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+
+                <!-- 最优结果图片 -->
+                <div class="best-image-container">
+                    <h3>🖼️ 最优结果</h3>
+                    <div id="best-image-wrapper" class="image-wrapper">
+                        <div class="placeholder">等待生成</div>
+                    </div>
+                </div>
+
+                <!-- 缩略图库 -->
+                <div class="thumbnails">
+                    <h3>🎞️ 生成记录</h3>
+                    <div id="thumbnails-container" class="thumbnails-grid">
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 设置模态框 -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚙️ 系统设置</h2>
+                <span class="close-btn">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h3>📂 API 密钥与模型配置</h3>
+                    <p class="settings-hint">配置两个独立的评分源，系统将根据负载和可用性自动切换。</p>
+                    
+                    <div class="settings-row">
+                        <div class="settings-col">
+                            <label class="col-title">评分源 A (常规/免费)</label>
+                            <div class="form-group">
+                                <label for="ms-name">显示名称</label>
+                                <input type="text" id="ms-name" class="input-field" placeholder="例: ModelScope">
+                            </div>
+                            <div class="form-group">
+                                <label for="ms-key">API Key</label>
+                                <input type="password" id="ms-key" class="input-field" placeholder="输入 API 密钥">
+                            </div>
+                            <div class="form-group">
+                                <label for="ms-url">API URL</label>
+                                <input type="text" id="ms-url" class="input-field" placeholder="API 地址">
+                            </div>
+                            <div class="form-group">
+                                <label for="ms-model">模型 ID</label>
+                                <input type="text" id="ms-model" class="input-field" placeholder="模型标识符">
+                            </div>
+                        </div>
+
+                        <div class="settings-divider"></div>
+
+                        <div class="settings-col">
+                            <label class="col-title">评分源 B (增强/付费)</label>
+                            <div class="form-group">
+                                <label for="sf-name">显示名称</label>
+                                <input type="text" id="sf-name" class="input-field" placeholder="例: SiliconFlow">
+                            </div>
+                            <div class="form-group">
+                                <label for="sf-key">API Key</label>
+                                <input type="password" id="sf-key" class="input-field" placeholder="输入 API 密钥">
+                            </div>
+                            <div class="form-group">
+                                <label for="sf-url">API URL</label>
+                                <input type="text" id="sf-url" class="input-field" placeholder="API 地址">
+                            </div>
+                            <div class="form-group">
+                                <label for="sf-model">模型 ID</label>
+                                <input type="text" id="sf-model" class="input-field" placeholder="模型标识符">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-info">
+                    <p>💡 保存后设置将写入 <strong>.env</strong> 文件并立即尝试同步到当前运行环境。</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancel-settings" class="btn-secondary">取消</button>
+                <button id="save-settings" class="btn-primary">保存并应用</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Socket.IO 库（支持 WebSocket 实时通信） -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- 备用 CDN -->
+    <script>
+        if (typeof io === 'undefined') {
+            // 如果 CDN 不可用，尝试本地 Socket.IO
+            var script = document.createElement('script');
+            script.src = '/static/socket.io.min.js';
+            document.head.appendChild(script);
+        }
+    </script>
+    
+    <!-- 应用逻辑脚本 -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

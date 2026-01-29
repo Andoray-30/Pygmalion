@@ -1,5 +1,5 @@
 import requests
-from config import FORGE_URL
+from pkg.infrastructure.config import FORGE_URL
 
 def check_forge_health():
     """轻量心跳检测，快速发现 Forge 异常"""

@@ -10,7 +10,7 @@ import base64
 import random
 import datetime
 import re
-from config import (
+from pkg.infrastructure.config import (
         FORGE_URL,
         TARGET_SCORE,
         MAX_ITERATIONS,
@@ -23,10 +23,10 @@ from config import (
         MODEL_SWITCH_SCORE_THRESHOLD,
         MODEL_SWITCH_MIN_ITERATIONS,
 )
-from creator import CreativeDirector
-from evaluator import rate_image
-from .health import check_forge_health
-from .analysis import compute_gradient
+from pkg.system.modules.creator import CreativeDirector
+from pkg.system.modules.evaluator import rate_image
+from pkg.infrastructure.health import check_forge_health
+from pkg.infrastructure.utils import compute_gradient
 
 OUTPUT_DIR = "evolution_history"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -63,18 +63,18 @@ class DiffuServoV4:
         
         self.params = {
             "prompt": f"cinematic shot of {theme}, misty sunbeams, lush foliage, volumetric light, 8k, masterpiece, sharp focus, highly detailed",
-            "negative_prompt": "text, watermark, blurry, noise, distortion, ugly, low quality, jpeg artifacts, grain",
-            "steps": 5,
-            "cfg_scale": 1.5,
-            "width": 1024,
-            "height": 1024,
-            "sampler_name": "DPM++ SDE",
-            "scheduler": "Karras",
+            "negative_prompt": "text, watermark, blurry, noise, distortion, ugly, low quality, jpeg artifacts, grain, nsfw",
+            "steps": 20,  # 增加步数以获得更好质量，防止 Turbo 模式过快导致的潜在问题
+            "cfg_scale": 7.0,  # 标准 CFG
+            "width": 832,   # SDXL 推荐分辨率
+            "height": 1216, # SDXL 推荐分辨率
+            "sampler_name": "Euler a", # 更稳健的采样器
+            "scheduler": "Simple", # 标准调度器
             "seed": -1,
             "enable_hr": False,
             "hr_scale": 1.5,
             "hr_upscaler": "R-ESRGAN 4x+",
-            "hr_second_pass_steps": 4,
+            "hr_second_pass_steps": 10,
             "denoising_strength": 0.35,
             "hr_additional_modules": []
         }
@@ -274,16 +274,34 @@ class DiffuServoV4:
         
         return False
     
-    def generate(self, prev_score=None, prev_feedback=None, best_dimensions=None):
+    def generate(self, prev_score=None, prev_feedback=None, best_dimensions=None, external_suggestion=None):
         """生成图片 (单模型版 + 评分反馈循环 + Prompt缓存)
         Args:
             prev_score: 前一次迭代的得分(用于反馈)
             prev_feedback: 前一次迭代的反馈信息(最弱维度)
             best_dimensions: 历史最佳维度分数(用于反馈)
+            external_suggestion: [新增] 外部传入的创意建议或用户反馈
         """
+        # [关键修复] 增加内部迭代计数，确保模型切换逻辑生效
+        self.iteration += 1
+        
+        # 🎯 [核心改进] 如果收到重大用户建议，尝试重新分析模型意图
+        if external_suggestion and len(external_suggestion) > 10:
+            print(f"🔄 [动态分析] 收到重大反馈，尝试重新评估模型建议...")
+            re_rec = self.brain.analyze_theme_and_recommend_model(f"{self.theme} (Feedback: {external_suggestion})")
+            new_model = re_rec.get("model", "PREVIEW")
+            if new_model != self.initial_model_choice:
+                print(f"🎯 [模型切换] 从 {self.initial_model_choice} 切换到 {new_model} 以响应反馈")
+                self.initial_model_choice = new_model
+
         # 🎯 【改进】反馈机制优化：既要改进弱项，也要保持强项
         feedback_context = ""
-        if prev_score is not None and prev_feedback is not None:
+        
+        # 优先使用外部建议
+        if external_suggestion:
+            feedback_context = f"\nUser feedback/Creative direction: {external_suggestion}"
+        
+        elif prev_score is not None and prev_feedback is not None:
             # 识别并强化强势维度
             strong_dims = []
             if best_dimensions:
@@ -294,6 +312,10 @@ class DiffuServoV4:
             strong_hint = f" Keep excelling in: {', '.join(strong_dims)}." if strong_dims else ""
             feedback_context = f"\nPrevious score: {prev_score:.2f}.{strong_hint} Focus on improving {prev_feedback}."
         
+        # [新增] 处理外部创意建议或用户实时反馈
+        if external_suggestion:
+            feedback_context = f"{feedback_context}\nExternal Insight/User Request: {external_suggestion}"
+
         # 【关键改进】OPTIMIZE阶段禁用随机镜头，使用最佳方向
         if self.state == "OPTIMIZE" and self.locked_lens == "BEST_ACHIEVED":
             core_prompt = self.brain.brainstorm_prompt(self.theme, feedback_context=feedback_context, use_random=False)

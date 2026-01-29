@@ -4,7 +4,7 @@ import logging
 import httpx
 import random
 from dotenv import load_dotenv
-from config import (
+from pkg.infrastructure.config import (
     JUDGE_MODEL_NAME, JUDGE_MODELS, JUDGE_MAX_RETRIES, JUDGE_TIMEOUT, 
     LOG_LEVEL, LOG_FILE, JUDGE_MODEL_ROTATION_ENABLED, JUDGE_MODEL_ROTATION_INTERVAL
 )
@@ -30,7 +30,7 @@ class SmartAPIManager:
         self.free_api = {
             'name': 'ModelScope (FREE)',
             'key': os.getenv("MODELSCOPE_API_KEY"),
-            'url': "https://api-inference.modelscope.cn/v1",
+            'url': os.getenv("MODELSCOPE_URL", "https://api-inference.modelscope.cn/v1"),
             'active': False,
             'failures': 0,
             'avg_time': 0,
@@ -41,7 +41,7 @@ class SmartAPIManager:
         self.premium_api = {
             'name': 'SiliconFlow (PAID)',
             'key': os.getenv("SILICON_KEY"),
-            'url': "https://api.siliconflow.cn/v1",
+            'url': os.getenv("SILICON_URL", "https://api.siliconflow.cn/v1"),
             'active': False,
             'failures': 0,
             'avg_time': 0,
@@ -99,6 +99,34 @@ class SmartAPIManager:
         if self.rotation_enabled:
             logger.info(f"🔄 评分模型轮换已启用 (间隔: {self.rotation_interval}次)")
             logger.info(f"📚 模型池: {' → '.join([m.split('/')[-1] for m in self.judge_model_pool])}")
+
+    def reload_config(self):
+        """重新从环境变量加载配置（用于 Web 界面更新设置后同步）"""
+        logger.info("🔄 正在重新加载 API 反馈配置...")
+        
+        # 更新源 A (Primary)
+        self.free_api['name'] = os.getenv("EVAL_A_NAME", "Evaluator A")
+        self.free_api['key'] = os.getenv("EVAL_A_KEY", os.getenv("MODELSCOPE_API_KEY"))
+        self.free_api['url'] = os.getenv("EVAL_A_URL", os.getenv("MODELSCOPE_URL", "https://api-inference.modelscope.cn/v1"))
+        
+        # 更新源 B (Premium)
+        self.premium_api['name'] = os.getenv("EVAL_B_NAME", "Evaluator B")
+        self.premium_api['key'] = os.getenv("EVAL_B_KEY", os.getenv("SILICON_KEY"))
+        self.premium_api['url'] = os.getenv("EVAL_B_URL", os.getenv("SILICON_URL", "https://api.siliconflow.cn/v1"))
+        
+        # 更新模型池
+        model_a = os.getenv("EVAL_A_MODEL")
+        model_b = os.getenv("EVAL_B_MODEL")
+        
+        if model_a or model_b:
+            new_pool = []
+            if model_a: new_pool.append(model_a)
+            if model_b: new_pool.append(model_b)
+            self.judge_model_pool = new_pool
+            self.current_judge_model = new_pool[0]
+            
+        # 重新初始化客户端状态
+        self._init_clients()
     
     def get_client(self):
         """获取当前API配置信息（不再返回OpenAI客户端）"""
