@@ -3,24 +3,49 @@
 .env.local
 .env.*.local
 
-# Forge folder
+# Forge folder (开发工具)
 Forge/
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
 *.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+
+# Virtual environments
 venv/
 env/
+ENV/
+env.bak/
+venv.bak/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.DS_Store
 
-# Output
+# Output & Temporary
 evolution_history/
+generation_state/
 models_snapshot/
 *.log
+*.tmp
+*.bak
+*_backup.py
+*_old.py
+
+# 临时测试文件
+test_*.json

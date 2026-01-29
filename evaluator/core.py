@@ -1,9 +1,13 @@
 import os
 import time
 import logging
-from openai import OpenAI
+import httpx
+import random
 from dotenv import load_dotenv
-from config import JUDGE_MODEL_NAME, JUDGE_MAX_RETRIES, JUDGE_TIMEOUT, LOG_LEVEL, LOG_FILE
+from config import (
+    JUDGE_MODEL_NAME, JUDGE_MODELS, JUDGE_MAX_RETRIES, JUDGE_TIMEOUT, 
+    LOG_LEVEL, LOG_FILE, JUDGE_MODEL_ROTATION_ENABLED, JUDGE_MODEL_ROTATION_INTERVAL
+)
 from .utils import encode_image, extract_json
 
 load_dotenv()
@@ -19,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 🔄 智能API管理器 - 优先免费,超时自动升级付费
+# 🔄 智能API管理器 - 优先免费,超时自动升级付费 + 模型轮换
 class SmartAPIManager:
     def __init__(self):
         # 免费API配置 (ModelScope)
@@ -44,6 +48,13 @@ class SmartAPIManager:
             'is_premium': True
         }
         
+        # 多模型轮换系统
+        self.judge_model_pool = list(JUDGE_MODELS.values())
+        self.current_judge_model = JUDGE_MODEL_NAME
+        self.model_call_count = 0
+        self.rotation_enabled = JUDGE_MODEL_ROTATION_ENABLED
+        self.rotation_interval = JUDGE_MODEL_ROTATION_INTERVAL
+        
         # 性能阈值
         self.SPEED_THRESHOLD = 15.0  # 秒,超过则升级到付费
         self.FAILURE_THRESHOLD = 2   # 连续失败2次则升级
@@ -55,36 +66,22 @@ class SmartAPIManager:
         self._init_clients()
     
     def _init_clients(self):
-        """初始化两个API客户端"""
-        # 检查免费API
+        """初始化两个API配置（不再使用OpenAI客户端，改用httpx直接调用）"""
+        # 检查免费API密钥
         if self.free_api['key']:
-            try:
-                self.free_api['client'] = OpenAI(
-                    api_key=self.free_api['key'],
-                    base_url=self.free_api['url']
-                )
-                self.free_api['active'] = True
-                logger.info("✓ 免费API (ModelScope) 已就绪")
-            except Exception as e:
-                logger.warning(f"✗ 免费API初始化失败: {e}")
-                self.free_api['active'] = False
+            self.free_api['active'] = True
+            logger.info("✓ 免费API (ModelScope) 已就绪")
         else:
             logger.warning("⚠️ 未检测到MODELSCOPE_API_KEY,跳过免费API")
+            self.free_api['active'] = False
         
-        # 检查付费API
+        # 检查付费API密钥
         if self.premium_api['key']:
-            try:
-                self.premium_api['client'] = OpenAI(
-                    api_key=self.premium_api['key'],
-                    base_url=self.premium_api['url']
-                )
-                self.premium_api['active'] = True
-                logger.info("✓ 付费API (SiliconFlow) 已就绪")
-            except Exception as e:
-                logger.warning(f"✗ 付费API初始化失败: {e}")
-                self.premium_api['active'] = False
+            self.premium_api['active'] = True
+            logger.info("✓ 付费API (SiliconFlow) 已就绪")
         else:
             logger.warning("⚠️ 未检测到SILICON_KEY,无法使用付费API")
+            self.premium_api['active'] = False
         
         # 选择初始API: 优先免费
         if self.free_api['active']:
@@ -97,12 +94,28 @@ class SmartAPIManager:
         else:
             logger.error("❌ 两个API都不可用!")
             self.current_api = None
+        
+        # 打印模型池信息
+        if self.rotation_enabled:
+            logger.info(f"🔄 评分模型轮换已启用 (间隔: {self.rotation_interval}次)")
+            logger.info(f"📚 模型池: {' → '.join([m.split('/')[-1] for m in self.judge_model_pool])}")
     
     def get_client(self):
-        """获取当前活跃API客户端"""
+        """获取当前API配置信息（不再返回OpenAI客户端）"""
         if self.current_api and self.current_api['active']:
-            return self.current_api['client']
+            return self.current_api
         return None
+    
+    def get_judge_model(self):
+        """获取当前评分模型（支持轮换）"""
+        if self.rotation_enabled and self.model_call_count >= self.rotation_interval:
+            # 轮换到下一个模型
+            self.current_judge_model = random.choice(self.judge_model_pool)
+            self.model_call_count = 0
+            logger.info(f"🔄 评分模型已轮换: {self.current_judge_model.split('/')[-1]} (剩余: {self.model_call_count}/{self.rotation_interval})")
+        
+        self.model_call_count += 1
+        return self.current_judge_model
     
     def record_response_time(self, elapsed_time):
         """记录响应时间"""
@@ -122,17 +135,19 @@ class SmartAPIManager:
             self.fallback_enabled = True
     
     def handle_failure(self):
-        """处理API失败"""
+        """处理API失败 - 对于速率限制(429)立即切换，其他错误累计到阈值后切换"""
         self.current_api['failures'] += 1
         
+        # 🔥 改进逻辑：任何失败都可能需要切换，只要有备用API
+        # 特别是429错误应该立即切换
         if (not self.current_api['is_premium'] and 
-            self.current_api['failures'] >= self.FAILURE_THRESHOLD and
             self.premium_api['active']):
-            logger.warning(f"⚠️ 免费API失败{self.FAILURE_THRESHOLD}次,升级到付费API")
+            # 尝试切换到付费API
+            logger.warning(f"⚠️ 切换API: {self.current_api['name']} → {self.premium_api['name']}")
             self.current_api = self.premium_api
             self.fallback_enabled = True
         
-        # 重置计数
+        # 重置失败计数
         self.current_api['failures'] = 0
     
     def get_api_status(self):
@@ -142,7 +157,9 @@ class SmartAPIManager:
             'free_ready': self.free_api['active'],
             'premium_ready': self.premium_api['active'],
             'fallback_enabled': self.fallback_enabled,
-            'avg_response_time': self.current_api['avg_time'] if self.current_api else 0
+            'avg_response_time': self.current_api['avg_time'] if self.current_api else 0,
+            'judge_model': self.current_judge_model.split('/')[-1] if self.current_judge_model else 'None',
+            'model_call_count': self.model_call_count
         }
 
 # 全局API管理器实例
@@ -151,12 +168,14 @@ api_manager = SmartAPIManager()
 # 历史评分缓存（用于EWMA平滑）
 _score_history = []
 
-def rate_image(image_path, target_concept, concept_weight=0.5, enable_smoothing=True):
+def rate_image(image_path, target_concept, concept_weight=0.5, enable_smoothing=False):
     """
-    核心审图函数 (四维评分 + 动态权重 + EWMA平滑)
-    新增维度: 物理合理性 (Physical Reasonableness)
+    核心审图函数 (四维评分 + 固定权重 + 禁用平滑)
+    修复：
+    1. 默认禁用EWMA平滑（避免历史拉低当前分数）
+    2. 固定concept_weight=0.50（探索和渲染期保持一致，便于对比）
     :param concept_weight: 概念权重 (0-1)，quality权重动态计算，aesthetics与reasonableness各占15%
-    :param enable_smoothing: 是否启用历史评分平滑
+    :param enable_smoothing: 是否启用历史评分平滑（默认False）
     :return: dict 包含 final_score, concept_score, quality_score, aesthetics_score, reasonableness_score, reason
     """
     logger.info(f"开始评分: {target_concept} | 概念权重={concept_weight:.2f}")
@@ -232,55 +251,86 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
 
     for attempt in range(JUDGE_MAX_RETRIES):
         try:
-            client = api_manager.get_client()
-            if not client:
-                logger.error("❌ 无可用API客户端")
+            api_config = api_manager.get_client()
+            if not api_config:
+                logger.error("❌ 无可用API配置")
                 return {"final_score": -1.0, "concept_score": -1.0, "quality_score": -1.0, "aesthetics_score": -1.0, "reasonableness_score": -1.0, "reason": "No available API"}
             
-            api_info = api_manager.current_api['name']
-            logger.debug(f"API调用尝试 {attempt+1}/{JUDGE_MAX_RETRIES}: model={JUDGE_MODEL_NAME} | {api_info}")
+            # 🔄 获取当前评分模型（支持轮换）
+            current_judge_model = api_manager.get_judge_model()
+            
+            api_info = api_config['name']
+            logger.debug(f"API调用尝试 {attempt+1}/{JUDGE_MAX_RETRIES}: model={current_judge_model} | {api_info}")
             
             # 记录开始时间用于性能监测
             start_time = time.time()
             
-            response = client.chat.completions.create(
-                model=JUDGE_MODEL_NAME,
-                messages=[
+            # 使用httpx直接调用API，避免OpenAI库的平台检测问题
+            headers = {
+                "Authorization": f"Bearer {api_config['key']}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": current_judge_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": [
                         {"type": "text", "text": user_prompt},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]}
                 ],
-                temperature=0.2,
-                timeout=JUDGE_TIMEOUT,
-                max_tokens=250
-            )
+                "temperature": 0.2,
+                "max_tokens": 250
+            }
+            
+            with httpx.Client(timeout=JUDGE_TIMEOUT) as client:
+                response = client.post(
+                    f"{api_config['url']}/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                
+                # 🔥 立即处理HTTP错误（特别是429速率限制）
+                if response.status_code == 429:
+                    logger.warning(f"⚠️ API速率限制 (429) - 立即切换API (尝试{attempt+1}/{JUDGE_MAX_RETRIES})")
+                    api_manager.handle_failure()
+                    time.sleep(2 + attempt * 0.5)  # 退避延迟
+                    continue  # 跳过本次，直接进入下一次重试（会自动获取新API）
+                
+                response.raise_for_status()
+                data = response.json()
             
             # 计算响应时间
             elapsed_time = time.time() - start_time
             api_manager.record_response_time(elapsed_time)
 
-            content = response.choices[0].message.content.strip()
+            content = data['choices'][0]['message']['content'].strip()
             result = extract_json(content)
 
             if result and "final_score" in result:
                 raw_score = result['final_score']
                 
-                # 应用EWMA平滑（指数加权移动平均）
+                # 🔥 修复：平滑系数改为 EWMA_ALPHA = 0.1
+                # 原因：0.3的系数过重，导致新分数被历史值压低
+                # 现在新值占90%权重，历史值仅占10%
                 if enable_smoothing and _score_history:
-                    alpha = 0.3  # 平滑系数：0.3新值 + 0.7历史
+                    alpha = 0.1  # 改为0.1：新值90% + 历史10%（之前是30%+70%）
                     smoothed_score = alpha * raw_score + (1 - alpha) * _score_history[-1]
-                    logger.debug(f"评分平滑: 原始={raw_score:.4f} → 平滑后={smoothed_score:.4f}")
+                    logger.debug(f"评分平滑: 原始={raw_score:.4f} → 平滑后={smoothed_score:.4f} (历史权重10%)")
                     result['final_score'] = smoothed_score
                     result['raw_score'] = raw_score  # 保留原始分数用于调试
+                elif not _score_history:
+                    # 第一次评分，不平滑
+                    logger.debug(f"首次评分，不使用EWMA平滑")
                 
                 _score_history.append(result['final_score'])
                 if len(_score_history) > 10:  # 保留最近10次评分
                     _score_history.pop(0)
                 
-                # 添加API信息到结果
+                # 添加API和模型信息到结果
                 result['api_used'] = api_manager.current_api['name']
+                result['judge_model'] = current_judge_model.split('/')[-1]
                 result['response_time'] = f"{elapsed_time:.2f}s"
                 
                 logger.info(
@@ -288,13 +338,13 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
                     f"Quality={result.get('quality_score', -1):.2f}, "
                     f"Aesthetics={result.get('aesthetics_score', -1):.2f}, "
                     f"Reasonableness={result.get('reasonableness_score', -1):.2f}, "
-                    f"Final={result['final_score']:.2f} | API={result['api_used']} ({result['response_time']})"
+                    f"Final={result['final_score']:.2f} | 模型={result['judge_model']} | API={result['api_used']} ({result['response_time']})"
                 )
                 logger.debug(f"评分理由: {result.get('reason', 'N/A')}")
                 
                 print(f"📊 概念={result.get('concept_score', -1):.2f} | 画质={result.get('quality_score', -1):.2f} | 美学={result.get('aesthetics_score', -1):.2f} | 合理性={result.get('reasonableness_score', -1):.2f}")
                 print(f"🎯 最终得分: {result['final_score']:.2f}")
-                print(f"🔄 API: {result['api_used']} ({result['response_time']})")
+                print(f"🤖 模型: {result['judge_model']} | 🔄 API: {result['api_used']} ({result['response_time']})")
                 return result
             else:
                 logger.warning(f"响应格式错误 (尝试{attempt+1}): {content[:100]}")

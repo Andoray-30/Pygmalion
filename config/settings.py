@@ -38,11 +38,90 @@ DEEPSEEK_MODEL = _get_env("DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V3")
 DEEPSEEK_MAX_RETRIES = _get_int("DEEPSEEK_MAX_RETRIES", 5)
 DEEPSEEK_TIMEOUT = _get_int("DEEPSEEK_TIMEOUT", 30)
 
-# Judge (Qwen) - 升级到72B模型以获得更强的推理和物理合理性判断能力
-JUDGE_MODEL_NAME = _get_env("JUDGE_MODEL_NAME", "Qwen/Qwen2.5-VL-72B-Instruct")
+# Judge (Qwen) - 多模型评分池以充分利用2000次/天免费额度
+# 每个模型限额500次/天，轮换使用4个模型可达2000次/天
+# 📊 评分模型池 - 72B+多模态模型（精准度和推理能力均衡）
+JUDGE_MODELS = {
+    "primary": "Qwen/Qwen2.5-VL-72B-Instruct",      # 🥇 主力：VL-72B (当前)
+    "backup1": "Qwen/QVQ-72B-Preview",              # 🥈 备用1：QVQ-72B (量化视觉)
+    "backup2": "OpenGVLab/InternVL3_5-241B-A28B",   # 🥉 备用2：241B (超强推理)
+    "backup3": "Qwen/Qwen3-VL-235B-A22B-Instruct"   # 🎖️ 备用3：235B (新一代)
+}
+
+# 当前使用的评分模型（动态轮换）
+JUDGE_MODEL_NAME = _get_env("JUDGE_MODEL_NAME", JUDGE_MODELS["primary"])
 JUDGE_MAX_RETRIES = _get_int("JUDGE_MAX_RETRIES", 3)
 JUDGE_TIMEOUT = _get_int("JUDGE_TIMEOUT", 30)
+
+# 🔄 模型轮换配置
+JUDGE_MODEL_ROTATION_ENABLED = _get_env("JUDGE_MODEL_ROTATION_ENABLED", "true").lower() == "true"
+JUDGE_MODEL_DAILY_LIMIT = _get_int("JUDGE_MODEL_DAILY_LIMIT", 500)  # 单个模型每日限制
+JUDGE_MODEL_ROTATION_INTERVAL = _get_int("JUDGE_MODEL_ROTATION_INTERVAL", 150)  # 每150次评分轮换
 
 # Logging
 LOG_LEVEL = _get_env("LOG_LEVEL", "INFO")
 LOG_FILE = _get_env("LOG_FILE", "pygmalion.log")
+
+# ⚡ 三底模配置 (Triple-Model Strategy)
+# 策略：快速探索 + 风格分流（真实感/动漫风格）
+BASE_MODELS = {
+    # 🚀 探索模式：SDXL Turbo (1步极速生成)
+    # 用途：0.3秒/张 快速试错构图和提示词
+    # 架构：SDXL 1024×1024
+    # 适用：所有场景的初步探索
+    "PREVIEW": _get_env("PREVIEW_MODEL", "sd_xl_turbo_1.0_fp16.safetensors"),
+    
+    # 🎨 真实感渲染：Juggernaut XL Ragnarok (4-6步摄影级)
+    # 用途：8-10秒/张 摄影级真实感输出
+    # 擅长：人像、产品、食物、建筑、风景摄影
+    # 架构：SDXL 1024×1024
+    "RENDER": _get_env("RENDER_MODEL", "juggernautXL_ragnarokBy.safetensors"),
+    
+    # 🎭 动漫风格：Animagine XL V3.1
+    # 用途：6-8秒/张 高质量动漫/插画风格
+    # 擅长：动漫角色、游戏CG、漫画、幻想场景、可爱风格
+    # 架构：SDXL 1024×1024
+    "ANIME": _get_env("ANIME_MODEL", "animagineXLV31_v31.safetensors")
+}
+
+# 🔧 模型切换阈值
+MODEL_SWITCH_SCORE_THRESHOLD = _get_float("MODEL_SWITCH_SCORE_THRESHOLD", 0.78)
+MODEL_SWITCH_MIN_ITERATIONS = _get_int("MODEL_SWITCH_MIN_ITERATIONS", 5)  # 最少探索5次才允许切换
+
+# 🎨 LoRA 风格库 (可选，仅在 RENDER 模式激活)
+LORA_LIBRARY = {
+    "CINEMATIC": {"name": "cinematic_lighting_v2", "weight": 0.7},
+    "REALISTIC": {"name": "realistic_vision_v51", "weight": 0.8},
+    "NONE": None
+}
+
+# 🎯 模型特定参数配置
+MODEL_CONFIGS = {
+    "PREVIEW": {
+        "steps": 1,           # SDXL Turbo 1步极速（无需多步）
+        "cfg_scale": 1.0,     # CFG=1 SDXL Turbo标准值
+        "sampler": "DPM++ 2M Karras",  # SDXL推荐采样器
+        "scheduler": "Karras",
+        "enable_hr": False    # 探索期不开HR节省时间
+    },
+    "RENDER": {
+        "steps": 5,           # Juggernaut XL 黄金步数（4-6最优，5稳定）
+        "cfg_scale": 1.5,     # SDXL摄影级推荐值
+        "sampler": "DPM++ 2M Karras",  # SDXL推荐采样器
+        "scheduler": "Karras",
+        "enable_hr": True,    # HR高清处理激活
+        "hr_scale": 2.0,      # 2倍放大（1024→1536/1280更清晰）
+        "hr_second_pass_steps": 3,   # XL模型3步已足够
+        "denoising_strength": 0.35
+    },
+    "ANIME": {
+        "steps": 28,          # Animagine 推荐步数（20-30最优）
+        "cfg_scale": 7.0,     # 动漫模型推荐CFG值
+        "sampler": "Euler a",  # 动漫风格推荐采样器
+        "scheduler": "Normal",
+        "enable_hr": True,    # 动漫细节需要HR
+        "hr_scale": 1.5,      # 1.5倍放大（保持线条清晰）
+        "hr_second_pass_steps": 15,
+        "denoising_strength": 0.5
+    }
+}
