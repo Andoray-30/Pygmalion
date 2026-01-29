@@ -8,35 +8,58 @@
 
 - **操作系统**: Windows 10/11 (推荐)
 - **Python**: 3.10.x (必须)
-- **GPU**: NVIDIA 显卡 (建议 8GB+ 显存以运行 Forge 后端)
-- **网络**: 能够访问 ModelScope / SiliconFlow API
+- **显卡需求**: NVIDIA 显卡 (建议 8GB+ 显存)
+- **后端依赖**: [Stable Diffusion WebUI Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge) (必须)
+- **网络**: 能够访问相关大模型 API (ModelScope / SiliconFlow)
+
+---
+
+##  关于 Forge 后端
+
+本系统依赖 Forge 作为图像生成引擎。您有两种方式配置它：
+
+### 方案 A：集成模式（推荐）
+1. 在项目根目录下通过 Git 克隆或解压 Forge：
+   ```powershell
+   git clone https://github.com/lllyasviel/stable-diffusion-webui-forge Forge
+   ```
+2. 确保 `Forge/run.bat` 存在。
+3. 这样使用 `run_system.bat` 时，系统会自动帮您开启后端。
+
+### 方案 B：独立/远程模式
+1. 如果您已经在其他盘符或远程服务器运行了 Forge。
+2. 启动该服务，并确保开启了 `--api` 参数。
+3. 在 Pygmalion 的 **设置面板** 中，将 **Forge URL** 修改为该服务的地址（如 `http://192.168.1.10:7860`）。
 
 ---
 
 ##  安装步骤
 
-### 1. 克隆与环境准备
+### 1. 自动化安装 (推荐)
+如果您是首次使用，只需双击运行项目根目录下的：
 ```powershell
-git clone <repository_url>
-cd Pygmalion
+.\setup.bat
 ```
+该脚本会自动：
+- 创建 Python 虚拟环境。
+- 安装所有依赖库。
+- 克隆 Forge 后端（如果不存在）。
+- **自动从 HuggingFace 下载 3 个必备底模** (约 18GB，请确保空间充足)。
 
-### 2. 初始化环境
-运行 `run_system.bat`，它会自动检测并建议环境。如果您是首次使用，建议手动创建虚拟环境：
-```powershell
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
-```
+### 2. 手动安装 (如果自动下载失败)
+如果您网络环境特殊，建议手动准备：
+1. **环境**: `python -m venv venv` -> `.\venv\Scripts\activate` -> `pip install -r requirements.txt`。
+2. **Forge**: 在根目录运行 `git clone https://github.com/lllyasviel/stable-diffusion-webui-forge Forge`。
+3. **底模**: 将以下模型下载并放入 `Forge/models/Stable-diffusion/` 文件夹：
+   - `sd_xl_turbo_1.0_fp16.safetensors`
+   - `juggernautXL_ragnarokBy.safetensors`
+   - `animagineXLV31_v31.safetensors`
 
 ### 3. 配置 API 密钥
-复制模板文件：
-```powershell
-copy .env.example .env
-```
-用编辑器打开 `.env`，填入您的密钥（或者启动后在网页设置中填入）：
-- `MODELSCOPE_API_KEY`: 魔搭 API 密钥（用于免费评分）
-- `SILICON_KEY`: 硅基流动 API 密钥（用于 DeepSeek 和付费备用评分）
+推荐直接在启动后的 **Web 界面 -> 设置 ()** 中填入：
+- `SILICON_KEY`: 核心 API 密钥 (用于创意大脑)
+- `EVAL_A_API_KEY`: 评分服务 A 的密钥
+- `EVAL_B_API_KEY`: 评分服务 B 的密钥
 
 ---
 
@@ -46,43 +69,22 @@ copy .env.example .env
 ```powershell
 .\run_system.bat
 ```
-该脚本会自动完成以下操作：
-1. 清理残留进程。
-2. 清理 Python 编译缓存。
-3. 启动 **Forge 后端** (端口 7860)。
-4. 启动 **Pygmalion Web 服务** (端口 5000)。
-5. 自动在浏览器打开界面。
+该脚本会自动完成所有启动操作并打开浏览器界面。
 
 ---
 
 ##  使用流程
-
 1. **进入界面**: 访问 `http://localhost:5000`。
-2. **基础配置**: 
-   - 在左侧面板设置 **目标分数** (推荐 0.85)。
-   - 设置 **最大迭代次数** (推荐 5-10)。
-3. **输入需求**: 
-   - 在底部输入框输入主题，例如：`赛博朋克风格的猫娘在霓虹雨夜，精致细节，8k画质`。
-4. **观看演进**:
-   - 系统会首先调用 DeepSeek 优化提示词。
-   - 随后进入迭代：生成图片 -> 模型评分 -> 提出改进建议 -> 再次生成。
-5. **获取结果**:
-   - 最优结果会实时更新在右侧。
-   - 所有的生成路径都会保存在 `evolution_history/` 文件夹下。
+2. **输入需求**: 在底部输入框输入主题并点击发送。
+3. **观看演进**: 系统会实时展示提示词优化逻辑与图片迭代效果。
 
 ---
 
 ##  进阶：配置自定义 API
-
-如果您想使用其他服务（如 OpenAI 或本地 Ollama）：
-1. 点击导航栏右上角的 **设置**。
-2. 在弹出框中修改 **API URL** 与 **模型 ID**。
-3. 点击保存，系统将立即应用配置。
+点击导航栏右上角的 **设置 ()** 即可修改所有后端服务地址、模型 ID 及密钥。
 
 ---
 
 ##  常见问题
-
-- **网页打不开？**: 检查 `Pygmalion Web` 终端窗口是否有报错，确保端口 5000 未被占用。
-- **图片一直生成中？**: 确保 Forge 后端已成功完成 `Model loaded`。
-- **评分失败？**: 请检查 API 密钥是否正确，或网络是否通畅。
+- **底模下载慢？**: 请开启代理或手动在 HF 下载对应模型至 `Forge/models/Stable-diffusion/`。
+- **内存溢出？**: 检查显存是否达到 8GB，或关闭其他占用显存的软件。

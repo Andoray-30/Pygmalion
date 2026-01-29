@@ -7,12 +7,11 @@
 
 ---
 
-##  快速开始
+## ⚡ 快速开始
 
-只需一行命令即可启动整个系统：
-```powershell
-.\run_system.bat
-```
+1. **环境配置**: 双击运行 `.\setup.bat` (一键安装环境、依赖与底模)。
+2. **系统启动**: 双击运行 `.\run_system.bat` (启动整个系统)。
+
 详细安装与配置指南请参阅 [QUICKSTART.md](QUICKSTART.md)
 
 ---
@@ -30,11 +29,13 @@
 
 ---
 
-##  项目结构 (pkg 架构)
+## 📂 项目结构 (pkg 架构)
 
 ```text
 Pygmalion/
   launch.py              # 系统入口
+  setup.bat              # 一键环境配置脚本
+  setup_environment.ps1  # 自动化逻辑
   run_system.bat         # 一键启动脚本
   requirements.txt       # 项目依赖
   QUICKSTART.md          # 快速入门指南
@@ -42,14 +43,14 @@ Pygmalion/
   pkg/                   # 核心代码包
      interface/         # 接口层 (Web/WebSocket)
        server.py         # Flask-SocketIO 后端
-        web/           # 前端资源 (HTML/CSS/JS)
+       web/             # 前端资源 (HTML/CSS/JS)
    
      system/            # 系统层 (Logic/Modules)
        engine.py         # DiffuServoV4 核心控制器
-        modules/       # 功能模块 (Creator/Evaluator)
+       modules/         # 功能模块 (Creator/Evaluator)
    
      infrastructure/    # 基础设施层 (Config/Utils)
-         config/        # 全局配置集
+       config/          # 全局配置集
 
   evolution_history/     # 图片生成演进记录 (输出目录)
   Forge/                 # Stable Diffusion 后端集成目录
