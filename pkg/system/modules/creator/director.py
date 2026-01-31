@@ -112,6 +112,56 @@ Output JSON ONLY (no markdown):
         self.recommended_model = "PREVIEW"
         return fallback
 
+    def recommend_lora(self, theme, available_loras):
+        """
+        使用 DeepSeek 根据主题推荐最佳 LoRA。
+        """
+        system_prompt = f"""
+You are an expert SDXL LoRA selector.
+Theme: {theme}
+Available LoRAs in our library: {available_loras}
+
+Task: Choose the MOST suitable LoRA from the library for this theme.
+Criteria: 
+- Matching the visual style (anime vs realistic vs scifi)
+- Enhancing the subject matter
+
+Output JSON ONLY (no markdown):
+{{
+  "lora_key": "KEY_OR_NONE",
+  "weight": 0.6-0.9,
+  "reason": "short explanation"
+}}
+"""
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Recommend a LoRA for: {theme}"}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 100
+            }
+            
+            with httpx.Client(timeout=10) as client:
+                response = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+            
+            content = data['choices'][0]['message']['content'].strip()
+            content = content.replace("```json", "").replace("```", "").strip()
+            
+            import json
+            return json.loads(content)
+        except Exception as e:
+            print(f"⚠️ [DeepSeek] 推荐LoRA失败: {e}")
+            return {"lora_key": "NONE"}
+
     def generate_project_name(self, base_theme=""):
         """
         使用 DeepSeek 生成简短英文项目名，用于文件命名。

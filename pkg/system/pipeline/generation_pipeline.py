@@ -7,6 +7,7 @@ import os
 from pkg.system.adapters.forge_adapter import ForgeAdapter
 from pkg.system.strategies.model_selector import ModelSelector
 from pkg.system.strategies.prompt_enhancer import PromptEnhancer
+from pkg.system.builders.lora_builder import LoRABuilder
 
 
 OUTPUT_DIR = "evolution_history"
@@ -27,6 +28,7 @@ class GenerationPipeline:
         self.forge_adapter = ForgeAdapter(url=forge_url, timeout=forge_timeout)
         self.model_selector = ModelSelector()
         self.prompt_enhancer = PromptEnhancer()
+        self.lora_builder = LoRABuilder()
 
     def generate(self, theme, state, iteration, params, prev_score=None, 
                 prev_feedback=None, best_dimensions=None, external_suggestion=None,
@@ -80,7 +82,15 @@ class GenerationPipeline:
             use_random=use_random
         )
 
-        # 4. 根据模型类型调整质量后缀
+        # 4. LoRA 挂载 (调用 DeepSeek 决策)
+        # 通过 prompt_enhancer 的 brain 调用 recommend_lora
+        core_prompt = self.lora_builder.llm_select(
+            theme=theme, 
+            base_prompt=core_prompt, 
+            director=self.prompt_enhancer.brain
+        )
+
+        # 5. 根据模型类型调整质量后缀
         if model_mode == "ANIME":
             quality_suffix = ", masterpiece, best quality, highly detailed, vibrant colors, official art"
         else:
@@ -88,7 +98,7 @@ class GenerationPipeline:
 
         params['prompt'] = f"{core_prompt}, {quality_suffix}"
 
-        # 5. 应用模型配置
+        # 6. 应用模型配置
         params['steps'] = model_config['steps']
         params['cfg_scale'] = model_config['cfg_scale']
         params['enable_hr'] = model_config['enable_hr']
@@ -97,12 +107,12 @@ class GenerationPipeline:
             params['hr_second_pass_steps'] = model_config.get('hr_second_pass_steps', 3)
             params['denoising_strength'] = model_config.get('denoising_strength', 0.35)
 
-        # 6. 设置模型文件
+        # 7. 设置模型文件
         params['override_settings'] = {
             "sd_model_checkpoint": model_file
         }
 
-        # 7. 生成图片
+        # 8. 生成图片
         result = self.forge_adapter.generate(
             params=params,
             output_dir=OUTPUT_DIR,

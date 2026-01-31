@@ -88,11 +88,21 @@ BASE_MODELS = {
 MODEL_SWITCH_SCORE_THRESHOLD = _get_float("MODEL_SWITCH_SCORE_THRESHOLD", 0.78)
 MODEL_SWITCH_MIN_ITERATIONS = _get_int("MODEL_SWITCH_MIN_ITERATIONS", 5)  # 最少探索5次才允许切换
 
-# 🎨 LoRA 风格库 (可选，仅在 RENDER 模式激活)
+# 🎨 LoRA 资源库 (分为 STYLES 和 ENHANCERS)
+# 已根据 Forge/webui/models/Lora 目录下的实际模型进行同步
 LORA_LIBRARY = {
-    "CINEMATIC": {"name": "cinematic_lighting_v2", "weight": 0.7},
-    "REALISTIC": {"name": "realistic_vision_v51", "weight": 0.8},
-    "NONE": None
+    "STYLES": {
+        "CYBERPUNK": {"file": "cyberpunk_edgerunners_style_sdxl", "weight": 0.8, "trigger": "cyberpunk style, neon lights"},
+        "ANIME_LINEART": {"file": "LineAniRedmondV2-Lineart-LineAniAF", "weight": 0.7, "trigger": "lineart, cel shaded"},
+        "PHOTOREALISTIC": {"file": "style_lora_realis", "weight": 0.8, "trigger": "raw photo, highly detailed"},
+        "STUDIO_PORTRAIT": {"file": "studio_portrait_xl", "weight": 0.75, "trigger": "studio lighting, bokeh"}
+    },
+    "ENHANCERS": {
+        "DETAIL": {"file": "xl_more_art-full_v1", "weight": 0.5, "trigger": "detailed, masterpiece"},
+        "LIGHTING": {"file": "LowRA", "weight": 0.4, "trigger": "high contrast, atmospheric lighting"},
+        "HANDS": {"file": "Hands v2.1", "weight": 0.6, "trigger": "perfect hands, highly detailed hands"},
+        "ARTIFACTS": {"file": "ARTifacts", "weight": 0.5, "trigger": "high quality, sharp focus"}
+    }
 }
 
 # 🎯 模型特定参数配置

@@ -6,153 +6,105 @@ LoRA构建器 - 实现LoRA挂载功能
 
 
 class LoRABuilder:
-    """LoRA构建器 - 负责LoRA挂载和Prompt生成"""
+    """LoRA构建器 - 负责LoRA挂载和Prompt生成 (分类增强版)"""
 
     def __init__(self, lora_library=None):
         """
         初始化LoRA构建器
-
-        Args:
-            lora_library: LoRA库配置字典
-                {
-                    "CYBERPUNK": {
-                        "file": "cyberpunk_xl",
-                        "weight": 0.8,
-                        "trigger": "neon lights, futuristic"
-                    },
-                    "ANIME_STYLE": {
-                        "file": "anime_lineart_xl",
-                        "weight": 0.7,
-                        "trigger": "anime style, cel shading"
-                    }
-                }
         """
-        self.library = lora_library or self._get_default_library()
+        if lora_library:
+            self.library = lora_library
+        else:
+            try:
+                from pkg.infrastructure.config.settings import LORA_LIBRARY
+                self.library = LORA_LIBRARY
+            except ImportError:
+                self.library = self._get_fallback_library()
 
-    def _get_default_library(self):
-        """获取默认LoRA库"""
+    def _get_fallback_library(self):
+        """核心库加载失败时的兜底逻辑"""
         return {
-            "CYBERPUNK": {
-                "file": "cyberpunk_xl",
-                "weight": 0.8,
-                "trigger": "neon lights, futuristic cityscape"
+            "STYLES": {
+                "CYBERPUNK": {"file": "cyberpunk_xl", "weight": 0.8, "trigger": "neon lights"}
             },
-            "ANIME_STYLE": {
-                "file": "anime_lineart_xl",
-                "weight": 0.7,
-                "trigger": "anime style, cel shading"
-            },
-            "REALISTIC": {
-                "file": "realistic_vision_xl",
-                "weight": 0.6,
-                "trigger": "photorealistic, detailed"
-            },
-            "PORTRAIT": {
-                "file": "portrait_xl",
-                "weight": 0.75,
-                "trigger": "professional portrait, studio lighting"
+            "ENHANCERS": {
+                "DETAIL": {"file": "xl_more_art-full_v1", "weight": 0.5, "trigger": "detailed"}
             }
         }
 
-    def build(self, style_key, base_prompt, weight_override=None):
+    def build_categorized(self, style_key=None, enhancers=None, base_prompt="", weight_override=None):
         """
-        构建带LoRA的Prompt
-
-        Args:
-            style_key: 风格关键词 (e.g., "CYBERPUNK", "ANIME_STYLE")
-            base_prompt: 基础Prompt
-            weight_override: 覆盖默认权重（可选）
-
-        Returns:
-            str: 包含LoRA标签的完整Prompt
-        """
-        if style_key not in self.library:
-            print(f"⚠️ LoRA '{style_key}' 不在库中，跳过")
-            return base_prompt
-
-        lora_cfg = self.library[style_key]
-        weight = weight_override if weight_override is not None else lora_cfg['weight']
-        lora_str = f"<lora:{lora_cfg['file']}:{weight}>"
-        trigger = lora_cfg.get('trigger', '')
-
-        if trigger:
-            return f"{lora_str}, {trigger}, {base_prompt}"
-        else:
-            return f"{lora_str}, {base_prompt}"
-
-    def build_multi(self, style_keys, base_prompt):
-        """
-        构建多个LoRA的Prompt
-
-        Args:
-            style_keys: 风格关键词列表 [(style_key, weight), ...]
-            base_prompt: 基础Prompt
-
-        Returns:
-            str: 包含多个LoRA标签的完整Prompt
+        组合风格 LoRA 与 多个增强类 LoRA 的 Prompt
         """
         lora_tags = []
         triggers = []
+        
+        # 1. 挂载风格 LoRA
+        if style_key and str(style_key).upper() != "NONE":
+            style_lib = self.library.get("STYLES", {})
+            cfg = style_lib.get(style_key)
+            if cfg:
+                weight = weight_override if weight_override is not None else cfg['weight']
+                lora_tags.append(f"<lora:{cfg['file']}:{weight}>")
+                if cfg.get("trigger"):
+                    triggers.append(cfg["trigger"])
 
-        for style_key, weight in style_keys:
-            if style_key not in self.library:
-                continue
+        # 2. 挂载增强 LoRA
+        enhancers = enhancers or []
+        enhancer_lib = self.library.get("ENHANCERS", {})
+        for enc_key in enhancers:
+            cfg = enhancer_lib.get(enc_key)
+            if cfg:
+                lora_tags.append(f"<lora:{cfg['file']}:{cfg['weight']}>")
+                if cfg.get("trigger"):
+                    triggers.append(cfg["trigger"])
 
-            lora_cfg = self.library[style_key]
-            lora_tags.append(f"<lora:{lora_cfg['file']}:{weight}>")
-            trigger = lora_cfg.get('trigger', '')
-            if trigger:
-                triggers.append(trigger)
-
-        lora_str = ", ".join(lora_tags)
+        # 3. 组合
+        lora_str = " ".join(lora_tags)
         trigger_str = ", ".join(triggers)
-
+        
+        final_prompt = base_prompt
         if trigger_str:
-            return f"{lora_str}, {trigger_str}, {base_prompt}"
-        else:
-            return f"{lora_str}, {base_prompt}"
-
-    def auto_select(self, theme, base_prompt):
-        """
-        根据主题自动选择LoRA
-
-        Args:
-            theme: 主题描述
-            base_prompt: 基础Prompt
-
-        Returns:
-            str: 包含自动选择LoRA的Prompt
-        """
-        theme_lower = theme.lower()
-
-        # 简单的关键词匹配
-        if any(k in theme_lower for k in ["cyber", "neon", "futuristic", "sci-fi"]):
-            return self.build("CYBERPUNK", base_prompt)
-        elif any(k in theme_lower for k in ["anime", "manga", "cartoon"]):
-            return self.build("ANIME_STYLE", base_prompt)
-        elif any(k in theme_lower for k in ["portrait", "face", "person", "character"]):
-            return self.build("PORTRAIT", base_prompt)
-        elif any(k in theme_lower for k in ["photo", "realistic", "real"]):
-            return self.build("REALISTIC", base_prompt)
-
-        return base_prompt
-
-    def add_lora(self, name, file, weight=0.7, trigger=""):
-        """
-        动态添加LoRA到库中
-
-        Args:
-            name: LoRA名称
-            file: LoRA文件名（不含扩展名）
-            weight: 默认权重
-            trigger: 触发词
-        """
-        self.library[name] = {
-            "file": file,
-            "weight": weight,
-            "trigger": trigger
-        }
+            final_prompt = f"{trigger_str}, {final_prompt}"
+        if lora_str:
+            final_prompt = f"{lora_str} {final_prompt}"
+            
+        return final_prompt.strip()
 
     def list_available(self):
-        """列出所有可用的LoRA"""
-        return list(self.library.keys())
+        """返回所有可用的 STYLES 名称列表"""
+        return list(self.library.get("STYLES", {}).keys())
+
+    def llm_select(self, theme, base_prompt, director):
+        """
+        [核心逻辑] 使用 LLM 智能选择 Style LoRA，并根据规则自动挂载 Enhancers
+        """
+        print(f"🧠 [智能决策] 正在分析主题 '{theme}' 的视觉风格需求...")
+        
+        # 1. 风格推荐
+        available_styles = self.list_available()
+        recommendation = director.recommend_lora(theme, available_styles)
+        style_key = recommendation.get("lora_key")
+        
+        # 2. 自动挂载增强器 (Universal LoRAs)
+        # 默认挂载通用画质与艺术感增强
+        enhancers = ["DETAIL", "ARTIFACTS"] 
+        
+        # 语义探测：启发式挂载补充增强器
+        theme_lower = theme.lower()
+        # 检测人像相关（挂载手部修复/增强）
+        if any(w in theme_lower for w in ["person", "girl", "portrait", "woman", "man", "hand"]):
+            enhancers.append("HANDS")
+        # 检测光影相关
+        if any(w in theme_lower for w in ["lighting", "dark", "night", "glow", "shadow"]):
+            enhancers.append("LIGHTING")
+
+        # 3. 构建 Prompt
+        if style_key and str(style_key).upper() != "NONE" and style_key in self.library.get("STYLES", {}):
+            weight = recommendation.get("weight", 0.75)
+            reason = recommendation.get("reason", "符合视觉意图")
+            print(f"✨ [推荐选中] 风格: {style_key} + 增强器: {enhancers}")
+            return self.build_categorized(style_key, enhancers, base_prompt, weight_override=weight)
+        
+        print(f"ℹ️ [策略中性] 无特定风格推荐，仅挂载增强器: {enhancers}")
+        return self.build_categorized(None, enhancers, base_prompt)
