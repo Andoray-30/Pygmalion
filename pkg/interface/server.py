@@ -47,11 +47,47 @@ app = Flask(__name__,
 # 添加自定义目录服务：用于展示 evolution_history 下的生成图片
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_DIR_PATH = os.path.join(ROOT_DIR, "evolution_history")
+REFERENCE_UPLOAD_DIR = os.path.join(ROOT_DIR, "evolution_history", "references")
+os.makedirs(REFERENCE_UPLOAD_DIR, exist_ok=True)
 
 @app.route('/outputs/<path:filename>')
 def serve_outputs(filename):
     """服务生成后的图片文件"""
     return send_from_directory(OUTPUT_DIR_PATH, filename)
+
+@app.route('/api/upload_reference', methods=['POST'])
+def upload_reference():
+    """上传参考图接口"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': '没有找到文件'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': '文件名为空'}), 400
+        
+        # 生成安全的文件名
+        import uuid
+        from werkzeug.utils import secure_filename
+        ext = os.path.splitext(secure_filename(file.filename))[1]
+        safe_filename = f"ref_{uuid.uuid4().hex[:8]}{ext}"
+        filepath = os.path.join(REFERENCE_UPLOAD_DIR, safe_filename)
+        
+        # 保存文件
+        file.save(filepath)
+        
+        # 返回相对路径用于前端显示
+        relative_path = f"references/{safe_filename}"
+        
+        logger.info(f"✅ 参考图上传成功: {safe_filename}")
+        return jsonify({
+            'success': True,
+            'path': filepath,
+            'url': f"/outputs/{relative_path}"
+        })
+    except Exception as e:
+        logger.error(f"❌ 参考图上传失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # 配置 SocketIO
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'pygmalion-secret-key-2025')
@@ -70,12 +106,13 @@ pygmalion_core = None  # DiffuServoV4 核心系统
 class GenerationSession:
     """生成会话管理类"""
     
-    def __init__(self, session_id, theme, target_score, max_iterations, quick_mode):
+    def __init__(self, session_id, theme, target_score, max_iterations, quick_mode, reference_image_path=None):
         self.session_id = session_id
         self.theme = theme
         self.target_score = target_score
         self.max_iterations = max_iterations
         self.quick_mode = quick_mode
+        self.reference_image_path = reference_image_path
         self.current_iteration = 0
         self.best_score = 0.0
         self.best_image = None
@@ -296,6 +333,10 @@ def run_generation(session_id, session, theme):
                 session_core = DiffuServoV4(theme=theme)
                 session_core.target_score = session.target_score
                 session_core.max_iterations = session.max_iterations
+                # 传递参考图路径
+                if session.reference_image_path:
+                    session_core._session_reference_image = session.reference_image_path
+                    logger.info(f"[{session_id}] 🖼️ 已加载参考图: {session.reference_image_path}")
                 logger.info(f"[{session_id}] ✅ DiffuServoV4 已为主题 '{theme}' 初始化")
             except Exception as e:
                 logger.warning(f"[{session_id}] ⚠️ 无法初始化 DiffuServoV4: {e}")
@@ -494,12 +535,13 @@ def _generate_image(theme, suggestion, core_system=None):
     try:
         logger.info(f"🎨 调用生成器: 主题='{theme}'")
         
-        # 调用 DiffuServoV4 的 generate 方法生成图片，并传入创意建议
+        # 调用 DiffuServoV4 的 generate 方法生成图片，并传入创意建议和参考图
         image_path = core_system.generate(
             prev_score=None,
             prev_feedback=None,
             best_dimensions=None,
-            external_suggestion=suggestion
+            external_suggestion=suggestion,
+            reference_image_path=getattr(core_system, '_session_reference_image', None)
         )
         
         if image_path:

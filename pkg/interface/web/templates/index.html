@@ -91,11 +91,27 @@
 
             <!-- 输入区域 -->
             <div class="chat-input-area">
+                <!-- 参考图预览区 -->
+                <div id="reference-preview-container" style="display: none; padding: 8px; background: #f5f5f5; border-radius: 8px; margin-bottom: 8px; position: relative;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <img id="reference-preview-img" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px;" />
+                        <div style="flex: 1; font-size: 12px; color: #666;">
+                            <div>🖼️ 参考图已上传</div>
+                            <div id="reference-filename" style="font-size: 11px; color: #999;"></div>
+                        </div>
+                        <button id="remove-reference-btn" style="background: none; border: none; cursor: pointer; font-size: 18px; color: #999;">✕</button>
+                    </div>
+                </div>
+                
                 <div class="input-controls">
-                    <textarea id="custom-input" class="chat-input" 
-                              placeholder="有任何想说的吗？（可选）" 
-                              rows="2"></textarea>
-                    <button id="send-btn" class="btn-send">📤 发送</button>
+                    <div style="display: flex; gap: 8px; align-items: flex-end; width: 100%;">
+                        <button id="upload-reference-btn" class="btn-upload" title="上传参考图">🖼️</button>
+                        <input type="file" id="reference-file-input" accept="image/*" style="display: none;" />
+                        <textarea id="custom-input" class="chat-input" 
+                                  placeholder="输入主题或反馈（可选上传参考图）" 
+                                  rows="2"></textarea>
+                        <button id="send-btn" class="btn-send">📤 发送</button>
+                    </div>
                 </div>
             </div>
         </main>

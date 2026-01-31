@@ -12,11 +12,13 @@ class PygmalionApp {
         this.currentIter = 0;
         this.totalIters = 0;
         this.images = [];
+        this.referenceImagePath = null;  // 参考图路径
         
         this.initElements();
         this.attachEventListeners();
         this.updateSliders();
         this.initSocketIO();  // 初始化 Socket.IO
+        this.setupReferenceImageHandlers();  // 设置参考图处理器
     }
 
     initElements() {
@@ -43,6 +45,15 @@ class PygmalionApp {
             progressText: null,
             bestImageWrapper: document.getElementById('best-image-wrapper'),
             thumbnailsContainer: document.getElementById('thumbnails-container'),
+            
+            // 参考图相关元素
+            uploadReferenceBtn: document.getElementById('upload-reference-btn'),
+            referenceFileInput: document.getElementById('reference-file-input'),
+            referencePreviewContainer: document.getElementById('reference-preview-container'),
+            referencePreviewImg: document.getElementById('reference-preview-img'),
+            referenceFilename: document.getElementById('reference-filename'),
+            removeReferenceBtn: document.getElementById('remove-reference-btn'),
+            chatInputArea: document.querySelector('.chat-input-area'),
             
             // 设置模态框
             settingsModal: document.getElementById('settings-modal'),
@@ -250,7 +261,8 @@ class PygmalionApp {
             theme: theme || (this.elements.theme ? this.elements.theme.value.trim() : 'enchanted forest'),
             target_score: parseFloat(this.elements.targetScore.value),
             max_iterations: parseInt(this.elements.maxIter.value),
-            quick_mode: this.elements.quickMode.checked
+            quick_mode: this.elements.quickMode.checked,
+            reference_image_path: this.referenceImagePath  // 传递参考图路径
         };
 
         if (!params.theme) {
@@ -627,6 +639,126 @@ class PygmalionApp {
             this.elements.saveSettings.disabled = false;
             this.elements.saveSettings.textContent = '保存并应用';
         }
+    }
+
+    // ============================================================
+    // 参考图功能
+    // ============================================================
+
+    setupReferenceImageHandlers() {
+        // 上传按钮点击
+        if (this.elements.uploadReferenceBtn) {
+            this.elements.uploadReferenceBtn.addEventListener('click', () => {
+                this.elements.referenceFileInput.click();
+            });
+        }
+
+        // 文件选择
+        if (this.elements.referenceFileInput) {
+            this.elements.referenceFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    this.handleReferenceFile(file);
+                }
+            });
+        }
+
+        // 移除参考图
+        if (this.elements.removeReferenceBtn) {
+            this.elements.removeReferenceBtn.addEventListener('click', () => {
+                this.clearReferenceImage();
+            });
+        }
+
+        // 拖拽上传
+        if (this.elements.chatInputArea) {
+            this.elements.chatInputArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                this.elements.chatInputArea.classList.add('drag-over');
+            });
+
+            this.elements.chatInputArea.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                this.elements.chatInputArea.classList.remove('drag-over');
+            });
+
+            this.elements.chatInputArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                this.elements.chatInputArea.classList.remove('drag-over');
+                
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    this.handleReferenceFile(file);
+                }
+            });
+        }
+
+        // 粘贴上传
+        if (this.elements.customInput) {
+            this.elements.customInput.addEventListener('paste', (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.startsWith('image/')) {
+                        e.preventDefault();
+                        const file = items[i].getAsFile();
+                        if (file) {
+                            this.handleReferenceFile(file);
+                        }
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    async handleReferenceFile(file) {
+        try {
+            // 上传到服务器
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/upload_reference', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                this.referenceImagePath = result.path;
+                
+                // 显示预览
+                if (this.elements.referencePreviewContainer) {
+                    this.elements.referencePreviewContainer.style.display = 'block';
+                }
+                if (this.elements.referencePreviewImg) {
+                    this.elements.referencePreviewImg.src = result.url;
+                }
+                if (this.elements.referenceFilename) {
+                    this.elements.referenceFilename.textContent = file.name;
+                }
+
+                this.addMessage('系统', `🖼️ 参考图已上传: ${file.name}`, 'system');
+            } else {
+                throw new Error(result.error || '上传失败');
+            }
+        } catch (error) {
+            console.error('上传参考图失败:', error);
+            this.addMessage('系统', `❌ 参考图上传失败: ${error.message}`, 'error');
+        }
+    }
+
+    clearReferenceImage() {
+        this.referenceImagePath = null;
+        if (this.elements.referencePreviewContainer) {
+            this.elements.referencePreviewContainer.style.display = 'none';
+        }
+        if (this.elements.referencePreviewImg) {
+            this.elements.referencePreviewImg.src = '';
+        }
+        if (this.elements.referenceFilename) {
+            this.elements.referenceFilename.textContent = '';
+        }
+        this.addMessage('系统', '🗑️ 参考图已移除', 'system');
     }
 }
 

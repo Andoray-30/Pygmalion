@@ -548,6 +548,30 @@ body {
     background: #285AA8;
 }
 
+/* 参考图上传按钮 */
+.btn-upload {
+    padding: 10px 16px;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    border: 2px dashed var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-upload:hover {
+    background: #e8e8e8;
+    border-color: #999;
+}
+
+.chat-input-area.drag-over .btn-upload {
+    background: #e3f2fd;
+    border-color: #2196f3;
+    color: #2196f3;
+}
+
 /* ============================================================
    结果面板
    ============================================================ */

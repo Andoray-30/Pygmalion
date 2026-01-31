@@ -45,6 +45,7 @@ class DiffuServoV4:
         # 🧠 初始化创意大脑
         self.brain = CreativeDirector()
         self.theme = theme
+        self.reference_fusion = None
         
         # 🎯 [新增] 智能模型选择：根据主题推荐最佳底模
         print(f"\n🔍 分析主题并选择最佳模型...")
@@ -274,13 +275,14 @@ class DiffuServoV4:
         
         return False
     
-    def generate(self, prev_score=None, prev_feedback=None, best_dimensions=None, external_suggestion=None):
+    def generate(self, prev_score=None, prev_feedback=None, best_dimensions=None, external_suggestion=None, reference_image_path=None):
         """生成图片 (单模型版 + 评分反馈循环 + Prompt缓存)
         Args:
             prev_score: 前一次迭代的得分(用于反馈)
             prev_feedback: 前一次迭代的反馈信息(最弱维度)
             best_dimensions: 历史最佳维度分数(用于反馈)
             external_suggestion: [新增] 外部传入的创意建议或用户反馈
+            reference_image_path: [新增] 参考图片路径（用于Prompt融合）
         """
         # [关键修复] 增加内部迭代计数，确保模型切换逻辑生效
         self.iteration += 1
@@ -331,6 +333,19 @@ class DiffuServoV4:
             if prev_score and prev_score > self.best_prompt_score:
                 self.best_prompt = core_prompt
                 self.best_prompt_score = prev_score if prev_score else 0.0
+
+        # 🖼️ [新增] 参考图Prompt融合（可选）
+        if reference_image_path:
+            try:
+                if self.reference_fusion is None:
+                    from pkg.system.modules.reference import ReferencePromptFusion
+                    self.reference_fusion = ReferencePromptFusion()
+                fusion_result = self.reference_fusion.fuse(core_prompt, reference_image_path)
+                core_prompt = fusion_result.prompt
+                if fusion_result.tags_used:
+                    print(f"🖼️ [参考图融合] 追加标签: {', '.join(fusion_result.tags_used)}")
+            except Exception as e:
+                print(f"⚠️ 参考图融合失败: {e}")
         
         if self.params['seed'] == -1 or self.iteration > 1:
             self.params['seed'] = random.randint(1, 9999999999)
