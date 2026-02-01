@@ -94,6 +94,7 @@ class AdaptiveParameterTuner:
         Returns:
             dict: 更新后的参数
         """
+        params = params.copy()
         current_score = result.get('final_score', 0)
         concept = result.get('concept_score', 0)
         quality = result.get('quality_score', 0)
@@ -139,8 +140,9 @@ class AdaptiveParameterTuner:
                 params['cfg_scale'] = min(2.5, max(1.0, params['cfg_scale'] + cfg_delta))
                 print(f"🔧 [EXPLORE] PID调整: steps→{params['steps']}, cfg→{params['cfg_scale']:.2f}")
             else:
-                if "vivid" not in params['prompt']:
-                    params['prompt'] += ", vivid colors, cinematic lighting"
+                prompt = params.get('prompt')
+                if prompt and "vivid" not in prompt:
+                    params['prompt'] = prompt + ", vivid colors, cinematic lighting"
                 print("🔧 [EXPLORE] 增强Prompt语义")
 
             params['seed'] = random.randint(1, 9999999999)

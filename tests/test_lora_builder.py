@@ -32,7 +32,7 @@ class TestLoRABuilder:
         """测试默认库初始化"""
         assert lora_builder.library is not None
         assert "CYBERPUNK" in lora_builder.library
-        assert "ANIME_STYLE" in lora_builder.library
+        assert "ANIME_LINEART" in lora_builder.library
 
     def test_init_with_custom_library(self, custom_library):
         """测试自定义库初始化"""
@@ -45,7 +45,7 @@ class TestLoRABuilder:
         base_prompt = "city at night"
         result = lora_builder.build("CYBERPUNK", base_prompt)
         
-        assert "<lora:cyberpunk_xl:" in result
+        assert "<lora:cyberpunk_edgerunners_style_sdxl:" in result
         assert "city at night" in result
         assert "neon lights" in result  # trigger词
 
@@ -63,20 +63,20 @@ class TestLoRABuilder:
         base_prompt = "city at night"
         result = lora_builder.build("CYBERPUNK", base_prompt, weight_override=0.5)
         
-        assert "<lora:cyberpunk_xl:0.5>" in result
+        assert "<lora:cyberpunk_edgerunners_style_sdxl:0.5>" in result
 
     def test_build_multi(self, lora_builder):
         """测试构建多个LoRA"""
         base_prompt = "city at night"
         style_keys = [
             ("CYBERPUNK", 0.8),
-            ("REALISTIC", 0.6)
+            ("PHOTOREALISTIC", 0.6)
         ]
         
         result = lora_builder.build_multi(style_keys, base_prompt)
         
-        assert "<lora:cyberpunk_xl:0.8>" in result
-        assert "<lora:realistic_vision_xl:0.6>" in result
+        assert "<lora:cyberpunk_edgerunners_style_sdxl:0.8>" in result
+        assert "<lora:style_lora_realis:0.6>" in result
         assert "city at night" in result
 
     def test_auto_select_cyberpunk(self, lora_builder):
@@ -84,28 +84,28 @@ class TestLoRABuilder:
         base_prompt = "street scene"
         result = lora_builder.auto_select("cyberpunk city neon", base_prompt)
         
-        assert "<lora:cyberpunk_xl:" in result
+        assert "<lora:cyberpunk_edgerunners_style_sdxl:" in result
 
     def test_auto_select_anime(self, lora_builder):
         """测试自动选择动漫LoRA"""
         base_prompt = "girl character"
         result = lora_builder.auto_select("anime girl", base_prompt)
         
-        assert "<lora:anime_lineart_xl:" in result
+        assert "<lora:LineAniRedmondV2-Lineart-LineAniAF:" in result
 
     def test_auto_select_portrait(self, lora_builder):
         """测试自动选择人像LoRA"""
         base_prompt = "person"
         result = lora_builder.auto_select("portrait of a person", base_prompt)
         
-        assert "<lora:portrait_xl:" in result
+        assert "<lora:studio_portrait_xl:" in result
 
     def test_auto_select_realistic(self, lora_builder):
         """测试自动选择写实LoRA"""
         base_prompt = "landscape"
         result = lora_builder.auto_select("realistic photo of landscape", base_prompt)
         
-        assert "<lora:realistic_vision_xl:" in result
+        assert "<lora:style_lora_realis:" in result
 
     def test_auto_select_no_match(self, lora_builder):
         """测试无匹配时返回原prompt"""
@@ -134,7 +134,7 @@ class TestLoRABuilder:
         
         assert isinstance(available, list)
         assert "CYBERPUNK" in available
-        assert "ANIME_STYLE" in available
+        assert "ANIME_LINEART" in available
 
     def test_build_without_trigger(self):
         """测试没有trigger的LoRA"""

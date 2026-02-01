@@ -41,10 +41,11 @@ class DiffuServoV4:
     STATE_FINETUNE = "FINETUNE"   # 精细调优：锁定参数，只改Seed
     STATE_CONVERGED = "CONVERGED" # 收敛成功
     
-    def __init__(self, theme="enchanted forest"):
+    def __init__(self, theme="enchanted forest", reference_image_path=None):
         # 🧠 初始化创意大脑
         self.brain = CreativeDirector()
         self.theme = theme
+        self.reference_image_path = reference_image_path  # 新增：参考图路径
         self.reference_fusion = None
         
         # 🎯 [新增] 智能模型选择：根据主题推荐最佳底模
@@ -448,7 +449,11 @@ class DiffuServoV4:
             print(f"❌ API Error: {e}")
         return None
     
-    def run(self, target_score=None, max_iterations=None):
+    def run(self, target_score=None, max_iterations=None, reference_image_path=None):
+        # 更新参考图路径（如果提供）
+        if reference_image_path is not None:
+            self.reference_image_path = reference_image_path
+        
         if target_score is not None:
             self.target_score = float(target_score)
         if max_iterations is not None:
@@ -457,6 +462,8 @@ class DiffuServoV4:
         print("🚀 DiffuServo V4 启动：智能自适应控制（自动早停）")
         print(f"   目标分数: {self.target_score}")
         print(f"   最大迭代: {self.max_iterations}")
+        if self.reference_image_path:
+            print(f"   参考图: {self.reference_image_path}")
         
         converged = False
         early_stopped = False
@@ -489,14 +496,14 @@ class DiffuServoV4:
                     if key not in self.best_dimensions or dim_score > self.best_dimensions[key]:
                         self.best_dimensions[key] = dim_score
 
-            img_path = self.generate(prev_score=prev_score, prev_feedback=prev_feedback, best_dimensions=self.best_dimensions)
+            img_path = self.generate(prev_score=prev_score, prev_feedback=prev_feedback, best_dimensions=self.best_dimensions, reference_image_path=self.reference_image_path)
             if not img_path:
                 continue
             
             # 🎯 固定权重：保证评分的可比性
             concept_weight = 0.5  # 所有阶段使用统一权重
             
-            res = rate_image(img_path, self.theme, concept_weight=concept_weight, enable_smoothing=False)
+            res = rate_image(img_path, self.theme, concept_weight=concept_weight, enable_smoothing=False, reference_image_path=self.reference_image_path)
             if not isinstance(res, dict) or 'final_score' not in res:
                 print("⚠️ 评分失败，跳过")
                 continue
@@ -507,12 +514,19 @@ class DiffuServoV4:
             aesthetics = res.get('aesthetics_score', 0)
             reasonableness = res.get('reasonableness_score', 0)
             
+            # 参考图维度（如果提供了参考图）
+            reference_match = res.get('reference_match_score', None)
+            style_consistency = res.get('style_consistency', None)
+            pose_similarity = res.get('pose_similarity', None)
+            composition_match = res.get('composition_match', None)
+            character_consistency = res.get('character_consistency', None)
+            
             # 安全检查：防止 -1.0 污染 Buffer
             if current_score < 0:
                 print("⚠️ 检测到无效分数，跳过梯度更新")
                 continue
 
-            self.history.append({
+            history_entry = {
                 'iter': self.iteration,
                 'score': current_score,
                 'concept': concept,
@@ -529,13 +543,26 @@ class DiffuServoV4:
                     'hr_second_pass_steps': self.params['hr_second_pass_steps'],
                     'seed': self.params['seed']
                 }
-            })
+            }
+            
+            # 添加参考图维度（如果有）
+            if reference_match is not None:
+                history_entry['reference_match'] = reference_match
+                history_entry['style_consistency'] = style_consistency
+                history_entry['pose_similarity'] = pose_similarity
+                history_entry['composition_match'] = composition_match
+                history_entry['character_consistency'] = character_consistency
+            
+            self.history.append(history_entry)
             
             self.score_buffer.append(current_score)
             if len(self.score_buffer) > 5:
                 self.score_buffer.pop(0)
             
             print(f"📊 评分: 总{current_score:.2f} (内容{concept:.2f} | 画质{quality:.2f})", end="")
+            if reference_match is not None:
+                print(f" | 参考图{reference_match:.2f}", end="")
+            print()
             
             if self.state_transition(current_score, concept, quality, aesthetics=aesthetics, reasonableness=reasonableness):
                 print(f" → 🎯 达到目标！")

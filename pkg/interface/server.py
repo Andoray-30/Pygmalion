@@ -414,7 +414,7 @@ def run_generation(session_id, session, theme):
                 'status': f'📊 正在评分第 {iteration} 张图片...'
             })
             
-            scores = _evaluate_image(image_path, session_core)
+            scores = _evaluate_image(image_path, session_core, reference_image_path=session.reference_image_path)
             # 修复：不再取最大值，而是取 evaluator 返回的 final_score
             current_score = scores.get('final_score', 0.0) if scores else 0.0
             
@@ -444,13 +444,32 @@ def run_generation(session_id, session, theme):
                     'score': score
                 })
             
-            session.emit_message('score_update', {
+            # 构建score_update消息
+            score_update = {
                 'iteration': iteration,
                 'current_score': current_score,
                 'image_path': _path_to_url(image_path),
                 'is_best': current_score == session.best_score,
-                'max_iterations': session.max_iterations
-            })
+                'max_iterations': session.max_iterations,
+                'scores_detail': {
+                    'concept': scores.get('concept', 0),
+                    'quality': scores.get('quality', 0),
+                    'aesthetics': scores.get('aesthetics', 0),
+                    'reasonableness': scores.get('reasonableness', 0)
+                }
+            }
+            
+            # 如果有参考图维度，添加到消息
+            if 'reference_match' in scores:
+                score_update['reference_dimensions'] = {
+                    'reference_match': scores.get('reference_match', 0),
+                    'style_consistency': scores.get('style_consistency', 0),
+                    'pose_similarity': scores.get('pose_similarity', 0),
+                    'composition_match': scores.get('composition_match', 0),
+                    'character_consistency': scores.get('character_consistency', 0)
+                }
+            
+            session.emit_message('score_update', score_update)
             
             logger.info(f"[{session_id}] 📊 迭代 {iteration} 完成，分数: {current_score:.3f}")
             
@@ -556,7 +575,7 @@ def _generate_image(theme, suggestion, core_system=None):
         return None
 
 
-def _evaluate_image(image_path, core_system=None):
+def _evaluate_image(image_path, core_system=None, reference_image_path=None):
     """评估图片 - 调用真实的评分器"""
     if not core_system:
         logger.warning("⚠️ 核心系统不可用，使用模拟评分")
@@ -568,17 +587,21 @@ def _evaluate_image(image_path, core_system=None):
         }
     
     try:
-        logger.info(f"📊 调用评分器: 图片='{image_path}'")
+        logger.info(f"📊 调用评分器: 图片='{image_path}'" + (f" | 参考图='{reference_image_path}'" if reference_image_path else ""))
         
         # 导入评分函数
         from pkg.system.modules.evaluator.core import rate_image
+        
+        # 获取参考图路径（从core_system或参数）
+        ref_image = reference_image_path or getattr(core_system, '_session_reference_image', None)
         
         # 调用评分器进行多模型评分
         result = rate_image(
             image_path=image_path,
             target_concept=core_system.theme,
             concept_weight=0.5,
-            enable_smoothing=False
+            enable_smoothing=False,
+            reference_image_path=ref_image
         )
         
         if result and result.get('final_score', 0) > 0:
@@ -590,6 +613,15 @@ def _evaluate_image(image_path, core_system=None):
                 'aesthetics': result.get('aesthetics_score', 0),
                 'reasonableness': result.get('reasonableness_score', 0)
             }
+            
+            # 添加参考图维度（如果有）
+            if ref_image and result.get('reference_match_score') is not None:
+                scores['reference_match'] = result.get('reference_match_score', 0)
+                scores['style_consistency'] = result.get('style_consistency', 0)
+                scores['pose_similarity'] = result.get('pose_similarity', 0)
+                scores['composition_match'] = result.get('composition_match', 0)
+                scores['character_consistency'] = result.get('character_consistency', 0)
+            
             logger.info(f"✅ 评分完成: {scores}")
             return scores
         else:

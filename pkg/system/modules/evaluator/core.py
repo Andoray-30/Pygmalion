@@ -9,6 +9,7 @@ from pkg.infrastructure.config import (
     LOG_LEVEL, LOG_FILE, JUDGE_MODEL_ROTATION_ENABLED, JUDGE_MODEL_ROTATION_INTERVAL
 )
 from .utils import encode_image, extract_json
+from pkg.system.modules.reference.image_matcher import ReferenceImageMatcher  # ← 新增
 
 load_dotenv()
 
@@ -193,20 +194,18 @@ class SmartAPIManager:
 # 全局API管理器实例
 api_manager = SmartAPIManager()
 
-# 历史评分缓存（用于EWMA平滑）
-_score_history = []
-
-def rate_image(image_path, target_concept, concept_weight=0.5, enable_smoothing=False):
+def rate_image(image_path, target_concept, concept_weight=0.5, reference_image_path=None):
     """
-    核心审图函数 (四维评分 + 固定权重 + 禁用平滑)
+    核心审图函数 (五维评分：4个基础维度 + 参考图维度)
     修复：
-    1. 默认禁用EWMA平滑（避免历史拉低当前分数）
-    2. 固定concept_weight=0.50（探索和渲染期保持一致，便于对比）
-    :param concept_weight: 概念权重 (0-1)，quality权重动态计算，aesthetics与reasonableness各占15%
-    :param enable_smoothing: 是否启用历史评分平滑（默认False）
-    :return: dict 包含 final_score, concept_score, quality_score, aesthetics_score, reasonableness_score, reason
+    1. 固定concept_weight=0.50（探索和渲染期保持一致，便于对比）
+    2. 支持参考图评分维度（可选）
+    :param concept_weight: 概念权重 (0-1)，其他维度按比例分配
+    :param reference_image_path: 参考图路径（可选）
+    :return: dict 包含 final_score, concept_score, quality_score, aesthetics_score, reasonableness_score, 
+             以及可选的参考图5个维度: style_consistency, pose_similarity, composition_match, character_consistency, reference_match_score
     """
-    logger.info(f"开始评分: {target_concept} | 概念权重={concept_weight:.2f}")
+    logger.info(f"开始评分: {target_concept} | 概念权重={concept_weight:.2f} | 参考图={'有' if reference_image_path else '无'}")
     
     try:
         base64_image = encode_image(image_path)
@@ -214,10 +213,20 @@ def rate_image(image_path, target_concept, concept_weight=0.5, enable_smoothing=
         logger.error(f"图片加载失败: {e}", exc_info=True)
         return {"final_score": -1.0, "concept_score": -1.0, "quality_score": -1.0, "aesthetics_score": -1.0, "reasonableness_score": -1.0, "reason": str(e)}
 
-    # 动态计算权重分配 (4维: Concept + Quality + Aesthetics + Reasonableness)
-    aesthetics_weight = 0.15
-    reasonableness_weight = 0.15
-    quality_weight = 1.0 - concept_weight - aesthetics_weight - reasonableness_weight
+    # ============ 动态权重分配 ============
+    # 如果提供参考图，则使用5维评分；否则使用4维评分
+    if reference_image_path:
+        # 5维权重 (包含参考图评分)
+        # 理念：参考图约束很重要，占25%；基础4维保持相对权重
+        aesthetics_weight = 0.12
+        reasonableness_weight = 0.10
+        reference_match_weight = 0.25  # 参考图匹配度最高权重
+        quality_weight = 1.0 - concept_weight - aesthetics_weight - reasonableness_weight - reference_match_weight
+    else:
+        # 4维权重 (无参考图时)
+        aesthetics_weight = 0.15
+        reasonableness_weight = 0.15
+        quality_weight = 1.0 - concept_weight - aesthetics_weight - reasonableness_weight
     
     system_prompt = f"""
 You are a calibrated Image Quality Evaluator with Physical Reasoning capabilities for an adaptive control system.
@@ -255,7 +264,7 @@ TASK: Rate the image on FOUR independent dimensions:
    • Spatial coherence: Depth, perspective, and occlusion relationships are logical
    • Material properties: Reflections, transparency, and surface interactions are realistic
 
-SCORING FORMULA:
+SCORING FORMULA (WITHOUT REFERENCE IMAGE):
 Final Score = (Concept × {concept_weight:.2f}) + (Quality × {quality_weight:.2f}) + (Aesthetics × {aesthetics_weight:.2f}) + (Reasonableness × {reasonableness_weight:.2f})
 
 CRITICAL RULES:
@@ -339,22 +348,48 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
             if result and "final_score" in result:
                 raw_score = result['final_score']
                 
-                # 🔥 修复：平滑系数改为 EWMA_ALPHA = 0.1
-                # 原因：0.3的系数过重，导致新分数被历史值压低
-                # 现在新值占90%权重，历史值仅占10%
-                if enable_smoothing and _score_history:
-                    alpha = 0.1  # 改为0.1：新值90% + 历史10%（之前是30%+70%）
-                    smoothed_score = alpha * raw_score + (1 - alpha) * _score_history[-1]
-                    logger.debug(f"评分平滑: 原始={raw_score:.4f} → 平滑后={smoothed_score:.4f} (历史权重10%)")
-                    result['final_score'] = smoothed_score
-                    result['raw_score'] = raw_score  # 保留原始分数用于调试
-                elif not _score_history:
-                    # 第一次评分，不平滑
-                    logger.debug(f"首次评分，不使用EWMA平滑")
-                
-                _score_history.append(result['final_score'])
-                if len(_score_history) > 10:  # 保留最近10次评分
-                    _score_history.pop(0)
+                # ============ 集成参考图评分 ============
+                reference_scores = {}
+                if reference_image_path and os.path.exists(reference_image_path):
+                    try:
+                        matcher = ReferenceImageMatcher()
+                        reference_scores = matcher.evaluate_match(reference_image_path, image_path)
+                        logger.debug(f"参考图评分: {reference_scores}")
+                        
+                        # 将参考图5个维度添加到结果
+                        result['style_consistency'] = reference_scores.get('style_consistency', 0.5)
+                        result['pose_similarity'] = reference_scores.get('pose_similarity', 0.5)
+                        result['composition_match'] = reference_scores.get('composition_match', 0.5)
+                        result['character_consistency'] = reference_scores.get('character_consistency', 0.5)
+                        result['reference_match_score'] = reference_scores.get('overall_reference_match', 0.5)
+                        
+                        # 重新计算final_score，包含参考图维度
+                        base_final = (
+                            result.get('concept_score', 0.5) * concept_weight +
+                            result.get('quality_score', 0.5) * quality_weight +
+                            result.get('aesthetics_score', 0.5) * aesthetics_weight +
+                            result.get('reasonableness_score', 0.5) * reasonableness_weight
+                        )
+                        
+                        # 加入参考图权重
+                        reference_weight = 0.25 if reference_image_path else 0.0
+                        result['final_score'] = (
+                            base_final * (1.0 - reference_weight) +
+                            result['reference_match_score'] * reference_weight
+                        )
+                        
+                        logger.info(
+                            f"参考图评分已集成: "
+                            f"Style={result['style_consistency']:.2f}, "
+                            f"Pose={result['pose_similarity']:.2f}, "
+                            f"Composition={result['composition_match']:.2f}, "
+                            f"Character={result['character_consistency']:.2f}, "
+                            f"RefMatch={result['reference_match_score']:.2f} | "
+                            f"最终分数={result['final_score']:.2f}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"参考图评分失败，使用基础分数: {e}")
+                        reference_scores = {}
                 
                 # 添加API和模型信息到结果
                 result['api_used'] = api_manager.current_api['name']
@@ -371,6 +406,8 @@ OUTPUT (JSON ONLY, NO MARKDOWN):
                 logger.debug(f"评分理由: {result.get('reason', 'N/A')}")
                 
                 print(f"📊 概念={result.get('concept_score', -1):.2f} | 画质={result.get('quality_score', -1):.2f} | 美学={result.get('aesthetics_score', -1):.2f} | 合理性={result.get('reasonableness_score', -1):.2f}")
+                if reference_scores:
+                    print(f"🖼️ 参考图: 风格={result.get('style_consistency', -1):.2f} | 姿态={result.get('pose_similarity', -1):.2f} | 构图={result.get('composition_match', -1):.2f} | 角色={result.get('character_consistency', -1):.2f}")
                 print(f"🎯 最终得分: {result['final_score']:.2f}")
                 print(f"🤖 模型: {result['judge_model']} | 🔄 API: {result['api_used']} ({result['response_time']})")
                 return result

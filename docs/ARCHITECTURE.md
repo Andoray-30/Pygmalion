@@ -11,44 +11,35 @@ Pygmalion 是一个基于PID控制理论的自适应AI图像生成系统，采�
 └────────────┬────────────────────────────────────────────────┘
              │
 ┌────────────▼────────────────────────────────────────────────┐
-│                      Orchestration Layer                     │
+│                      Core Engine Layer                       │
 │                      (system/engine.py)                      │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
 │  │  INIT    │→ │ EXPLORE  │→ │ OPTIMIZE │→ │ FINETUNE │   │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-└──────┬──────────────────────────────────────────────────────┘
-       │
-┌──────▼──────────────────────────────────────────────────────┐
-│                       Pipeline Layer                         │
-│                (pipeline/generation_pipeline.py)             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ 1. Model Selection → 2. Prompt Enhancement →         │   │
-│  │ 3. LoRA Mounting → 4. ControlNet Setup → 5. Generate│   │
-│  └──────────────────────────────────────────────────────┘   │
+│  集成: 模型选择 + Prompt增强 + LoRA挂载 + 评分反馈         │
 └──────┬──────────────────────────────────────────────────────┘
        │
 ┌──────▼──────────────────────────────────────────────────────┐
 │                      Strategy Layer                          │
 │  ┌────────────────┐ ┌────────────────┐ ┌──────────────┐    │
-│  │ ModelSelector  │ │PromptEnhancer  │ │ ParameterTuner│   │
-│  │   (智能选模型)  │ │  (Prompt优化)   │ │  (PID控制器)   │   │
+│  │ ModelSelector  │ │PromptEnhancer  │ │ParameterTuner│    │
+│  │   (智能选模型)  │ │  (Prompt优化)   │ │  (PID控制器)  │    │
 │  └────────────────┘ └────────────────┘ └──────────────┘    │
 └──────┬──────────────────────────────────────────────────────┘
        │
 ┌──────▼──────────────────────────────────────────────────────┐
-│                      Builder Layer (NEW)                     │
-│  ┌────────────────┐ ┌────────────────────────────────────┐  │
-│  │  LoRABuilder   │ │     ControlNetBuilder             │  │
-│  │ (LoRA挂载)     │ │  (姿态/边缘控制)                    │  │
-│  └────────────────┘ └────────────────────────────────────┘  │
+│                      Builder Layer                           │
+│  ┌────────────────┐                                          │
+│  │  LoRABuilder   │  LoRA风格挂载与管理                      │
+│  └────────────────┘                                          │
 └──────┬──────────────────────────────────────────────────────┘
        │
 ┌──────▼──────────────────────────────────────────────────────┐
-│                      Adapter Layer                           │
-│  ┌────────────────┐ ┌────────────────────────────────────┐  │
-│  │ ForgeAdapter   │ │    EvaluatorAdapter               │  │
-│  │ (API封装)      │ │     (评分器封装)                    │  │
-│  └────────────────┘ └────────────────────────────────────┘  │
+│                      Module Layer                            │
+│  ┌────────────────┐ ┌──────────────────────────────────┐    │
+│  │  Evaluator     │ │   Reference Matcher              │    │
+│  │  (评分系统)     │ │   (参考图一致性)                   │    │
+│  └────────────────┘ └──────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -58,35 +49,25 @@ Pygmalion 是一个基于PID控制理论的自适应AI图像生成系统，采�
 
 ### 1. **Interface Layer（接口层）**
 - **文件**: `pkg/interface/server.py`
-- **职责**: FastAPI服务器，处理HTTP请求
+- **职责**: Flask + SocketIO 服务器，处理WebSocket和HTTP请求
 - **功能**:
-  - `/generate` - 创建生成任务
-  - `/status/{project_id}` - 查询状态
-  - `/models` - 列出可用模型
+  - WebSocket 实时生成通信
+  - `/api/upload_reference` - 参考图上传
+  - 状态管理与会话控制
 
-### 2. **Orchestration Layer（编排层）**
+### 2. **Core Engine Layer（核心引擎层）**
 - **文件**: `pkg/system/engine.py`
-- **职责**: 状态机管理与流程编排
+- **职责**: 状态机管理与生成流程编排
 - **核心逻辑**:
   ```python
   INIT → EXPLORE → OPTIMIZE → FINETUNE → CONVERGED
   ```
-- **设计原则**:
-  - ✅ 只负责状态转换
-  - ✅ 调用Pipeline执行具体任务
-  - ❌ 不直接操作API或生成图片
+- **特点**:
+  - ✅ 直接集成：模型选择、Prompt增强、LoRA挂载、API调用
+  - ✅ 状态驱动：根据分数和梯度自动切换状态
+  - ✅ 自适应调参：PID控制器动态优化参数
 
-### 3. **Pipeline Layer（流水线层）**
-- **文件**: `pkg/system/pipeline/generation_pipeline.py`
-- **职责**: 图片生成的完整流程
-- **步骤**:
-  1. 智能模型选择（ModelSelector）
-  2. Prompt增强（PromptEnhancer）
-  3. LoRA挂载（LoRABuilder）
-  4. ControlNet配置（ControlNetBuilder）
-  5. 调用Forge API生成图片
-
-### 4. **Strategy Layer（策略层）**
+### 3. **Strategy Layer（策略层）**
 - **文件**:
   - `pkg/system/strategies/model_selector.py`
   - `pkg/system/strategies/prompt_enhancer.py`
@@ -166,87 +147,114 @@ prompt = lora.auto_select("anime girl", base_prompt)
 **内置LoRA库**:
 - `CYBERPUNK` - 赛博朋克风格
 - `ANIME_STYLE` - 动漫线稿
-- `REALISTIC` - 写实增强
-- `PORTRAIT` - 人像专用
-
-#### 5.2 ControlNetBuilder（姿态/边缘控制）
-```python
-# 使用方法
-cn = ControlNetBuilder()
-
-# 边缘检测
-payload = cn.build(
-    reference_image=Image.open("pose.jpg"),
-    cn_type="canny",
-    weight=0.8
-)
-
-# 多个ControlNet
-payload = cn.build_multi([
-    {"image": img1, "type": "canny", "weight": 0.8},
-    {"image": img2, "type": "openpose", "weight": 0.6}
-])
-```
-
-**支持的类型**:
-- `canny` - 边缘检测
-- `depth` - 深度图
-- `openpose` - 姿态控制
-- `mlsd` - 线条检测
+- `PHOTOREALISTIC` - 摄影级写实
+- `STUDIO_PORTRAIT` - 影棚人像
 
 ---
 
-### 6. **Adapter Layer（适配器层）**
+### 4. **Builder Layer（构建器层）**
+- **文件**: `pkg/system/builders/lora_builder.py`
+- **职责**: LoRA风格管理与挂载
+
+```python
+# 使用方法
+lora = LoRABuilder()
+
+# 单个LoRA
+prompt = lora.build("CYBERPUNK", "city at night")
+# 输出: "<lora:cyberpunk_edgerunners_style_sdxl:0.8> cyberpunk style, neon lights, city at night"
+
+# LLM智能选择
+prompt = lora.llm_select(theme="cyberpunk city", base_prompt="...", director=brain)
+# 自动根据主题推荐风格并挂载增强器
+```
+
+**支持的风格**:
+- `CYBERPUNK` - 赛博朋克风格
+- `ANIME_LINEART` - 动漫线稿
+- `PHOTOREALISTIC` - 摄影级写实
+- `STUDIO_PORTRAIT` - 影棚人像
+
+---
+
+### 5. **Module Layer（模块层）**
 - **文件**:
-  - `pkg/system/adapters/forge_adapter.py`
-  - `pkg/system/adapters/evaluator_adapter.py`
-- **职责**: 封装外部API调用
-- **优势**:
-  - ✅ 隔离变化（切换到ComfyUI只需改Adapter）
-  - ✅ 便于Mock测试
-  - ✅ 统一错误处理
+  - `pkg/system/modules/evaluator/core.py` - 多维评分系统
+  - `pkg/system/modules/reference/image_matcher.py` - 参考图一致性
+- **职责**: 独立功能模块
+
+#### 5.1 Evaluator（评分系统）
+- 多模型轮换评分（Qwen2.5-VL-72B等）
+- 5维度评分：概念、质量、美学、合理性、参考图一致性
+- 智能API管理与错误恢复
+
+#### 5.2 Reference Matcher（参考图匹配）
+- CLIP特征提取
+- 5个一致性维度：风格、姿态、构图、角色、总体匹配度
+- 加权融合到最终评分
 
 ---
 
 ## 🔄 完整执行流程示例
 
 ```python
-# 1. 用户请求
-POST /generate {"theme": "cyberpunk city", "style_hint": "CYBERPUNK"}
+# 1. 用户请求（WebSocket）
+emit('generate', {
+    "theme": "cyberpunk city", 
+    "reference_image_path": "/path/to/ref.jpg"
+})
 
 # 2. Engine初始化状态机
-engine = DiffuServoV4(theme="cyberpunk city")
+engine = DiffuServoV4(
+    theme="cyberpunk city",
+    reference_image_path="/path/to/ref.jpg"
+)
 state = "INIT"
 
-# 3. Pipeline执行生成
-pipeline = GenerationPipeline()
-
-# 4. 策略层决策
+# 3. 策略层决策
 model = ModelSelector.select("cyberpunk city", "INIT", 0.0, 1)
 # 返回: "PREVIEW" (快速试错)
 
-# 5. Prompt增强
+# 4. Prompt增强
 prompt = PromptEnhancer.enhance("cyberpunk city", state="INIT")
 # 返回: "neon-lit cityscape with flying cars, ..."
 
-# 6. 挂载LoRA
+# 5. 挂载LoRA（LLM智能决策）
 lora = LoRABuilder()
-prompt = lora.build("CYBERPUNK", prompt)
-# 返回: "<lora:cyberpunk_xl:0.8>, neon lights, ..."
+prompt = lora.llm_select("cyberpunk city", prompt, director)
+# 返回: "<lora:cyberpunk_edgerunners_style_sdxl:0.8> <lora:xl_more_art-full_v1:0.5> ..."
 
-# 7. 调用Forge生成图片
-result = ForgeAdapter.generate(params)
+# 6. 直接调用Forge API生成
+resp = requests.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=params)
+image_path = save_image(resp.json()['images'][0])
 
-# 8. 评分并更新状态
-score = EvaluatorAdapter.rate(result['path'], theme)
-if score > 0.5:
+# 7. 评分（包含参考图一致性）
+score_result = rate_image(
+    image_path, 
+    theme, 
+    reference_image_path="/path/to/ref.jpg"
+)
+# 返回: {
+#   "final_score": 0.75,
+#   "concept_score": 0.8,
+#   "quality_score": 0.7,
+#   "reference_match_score": 0.72,
+#   ...
+# }
+
+# 8. 状态转换
+if score_result['final_score'] > 0.5:
     state = "EXPLORE"
 
 # 9. PID控制器调整参数
-pid = PIDParameterTuner()
-adjustments = pid.compute(target_score=0.90, current_score=score)
-params['steps'] += adjustments['steps_delta']
-params['cfg_scale'] += adjustments['cfg_delta']
+tuner = AdaptiveParameterTuner()
+params = tuner.adjust(
+    params, 
+    state, 
+    score_buffer, 
+    target_score=0.90, 
+    result=score_result
+)
 
 # 10. 循环迭代直到收敛
 ```
@@ -257,15 +265,18 @@ params['cfg_scale'] += adjustments['cfg_delta']
 
 ### 添加新的底模
 ```python
-# 1. 在 pkg/infrastructure/config.py 中注册
+# 在 pkg/infrastructure/config/settings.py 中注册
 BASE_MODELS["NEW_MODEL"] = "new_model.safetensors"
 MODEL_CONFIGS["NEW_MODEL"] = {
     "steps": 20,
     "cfg_scale": 7.0,
-    "enable_hr": True
+    "enable_hr": True,
+    "hr_scale": 1.5,
+    "hr_second_pass_steps": 10,
+    "denoising_strength": 0.4
 }
 
-# 2. 在 ModelSelector 中添加选择逻辑
+# 在 ModelSelector 中添加选择逻辑
 def select(...):
     if "specific_keyword" in theme:
         return "NEW_MODEL"
@@ -309,27 +320,16 @@ def test_model_selector():
         iteration=1
     )
     assert model == "PREVIEW"  # 初期应该使用快速模型
+
+# tests/test_lora_builder.py
+def test_lora_build():
+    builder = LoRABuilder()
+    result = builder.build("CYBERPUNK", "city at night")
+    assert "<lora:" in result
+    assert "cyberpunk style" in result
 ```
 
-### 集成测试
-```python
-# tests/test_pipeline.py
-def test_generation_pipeline():
-    pipeline = GenerationPipeline()
-    
-    # Mock Forge Adapter
-    pipeline.forge_adapter = MockForgeAdapter()
-    
-    result = pipeline.generate(
-        theme="test theme",
-        state="INIT",
-        iteration=1,
-        params={"steps": 4}
-    )
-    
-    assert result is not None
-    assert "path" in result
-```
+**测试覆盖**: 48个单元测试覆盖核心组件（ModelSelector, LoRABuilder, ParameterTuner等）
 
 ---
 
