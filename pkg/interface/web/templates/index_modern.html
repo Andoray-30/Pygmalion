@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pygmalion Chat UI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Custom Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-[#0f1115]">
+    <div id="root"></div>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- SVG Icons (Fixed for Props) ---
+        const Send = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>;
+        const Settings = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.12 2.12l4.24 4.24M1 12h6m6 0h6m-17.78-7.78l4.24-4.24m2.12-2.12l4.24-4.24"></path></svg>;
+        const Paperclip = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 0 19.8 4.3M22 12.5a10 10 0 0 0-19.8-4.2"></path></svg>;
+        const X = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
+        const Cpu = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>;
+        const User = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>;
+        const Sparkles = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>;
+        const Bot = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="9" y1="9" x2="9" y2="15"></line><line x1="15" y1="9" x2="15" y2="15"></line></svg>;
+        const Activity = (props) => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>;
+
+        // --- Components ---
+
+        const Avatar = ({ role }) => {
+            const styles = {
+                user: "bg-slate-600",
+                system: "bg-blue-600",
+                artist: "bg-purple-600",
+                critic: "bg-amber-600"
+            };
+            
+            const icons = {
+                user: <User className="w-5 h-5 text-white" />,
+                system: <Cpu className="w-5 h-5 text-white" />,
+                artist: <Sparkles className="w-5 h-5 text-white" />,
+                critic: <Activity className="w-5 h-5 text-white" />
+            };
+
+            return (
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-lg ${styles[role] || styles.system}`}>
+                    {icons[role] || icons.system}
+                </div>
+            );
+        };
+
+        const MessageBubble = ({ message }) => {
+            const isUser = message.sender === 'user';
+            
+            return (
+                <div className={`flex gap-4 mb-6 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in`}>
+                    <Avatar role={message.sender} />
+                    
+                    <div className={`flex flex-col max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
+                        <div className="flex items-center gap-2 mb-1 px-1">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                {message.senderName}
+                            </span>
+                            <span className="text-[10px] text-slate-600">
+                                {new Date(message.timestamp).toLocaleTimeString([], {hour12: false, hour:'2-digit', minute:'2-digit'})}
+                            </span>
+                        </div>
+
+                        <div className={`p-4 rounded-2xl shadow-md text-sm leading-relaxed ${
+                            isUser 
+                                ? 'bg-gradient-to-br from-indigo-600 to-blue-600 text-white rounded-tr-none' 
+                                : 'bg-[#1e232b] border border-white/5 text-slate-200 rounded-tl-none'
+                        }`}>
+                            {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
+
+                            {/* 评分详情 */}
+                            {message.scores && Object.keys(message.scores).length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                                    <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-2">评分详情</div>
+                                    {Object.entries(message.scores).map(([key, val]) => (
+                                        <div key={key} className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-400 capitalize">{key}</span>
+                                            <div className="flex items-center gap-2 flex-1 max-w-[200px]">
+                                                <div className="flex-1 bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+                                                    <div className="bg-gradient-to-r from-purple-500 to-blue-500 h-full transition-all" style={{width: `${val*100}%`}}></div>
+                                                </div>
+                                                <span className="text-slate-300 font-mono text-[10px] min-w-[40px] text-right">{val.toFixed(3)}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* 参考图评分维度 */}
+                            {message.reference_dimensions && (
+                                <div className="mt-3 pt-3 border-t border-purple-500/20 bg-purple-500/5 -m-4 mt-3 p-4 rounded-b-2xl">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                                        <span className="text-[10px] text-purple-400 uppercase font-bold tracking-wider">参考图匹配度</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {Object.entries(message.reference_dimensions).map(([key, val]) => {
+                                            const labels = {
+                                                'reference_match': '总体匹配',
+                                                'style_consistency': '风格一致',
+                                                'pose_similarity': '姿态相似',
+                                                'composition_match': '构图匹配',
+                                                'character_consistency': '角色保持'
+                                            };
+                                            return (
+                                                <div key={key} className="flex justify-between items-center text-xs">
+                                                    <span className="text-purple-300">{labels[key] || key}</span>
+                                                    <div className="flex items-center gap-2 flex-1 max-w-[200px]">
+                                                        <div className="flex-1 bg-purple-900/30 rounded-full h-1.5 overflow-hidden">
+                                                            <div className="bg-gradient-to-r from-purple-400 to-pink-500 h-full transition-all" style={{width: `${val*100}%`}}></div>
+                                                        </div>
+                                                        <span className="text-purple-300 font-mono text-[10px] min-w-[40px] text-right">{val.toFixed(3)}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {message.type === 'image' && (
+                                <div className="mt-3 relative group rounded-xl overflow-hidden border border-white/10 bg-black/20">
+                                    <img src={message.imageUrl} alt="Generated" className="w-full max-w-md h-auto object-cover" />
+                                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-sm">
+                                        <a href={message.imageUrl} download target="_blank" className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-full text-xs font-bold text-white backdrop-blur-md border border-white/20 transition-all flex items-center gap-2">
+                                            查看原图
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
+
+                            {message.scores && (
+                                <div className="mt-3 bg-black/20 p-3 rounded-lg border border-white/5 text-xs space-y-3">
+                                    <div>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-slate-400">基础评分</span>
+                                            <span className="text-amber-400 font-bold text-sm">{(message.scores.final_score || message.score || 0).toFixed(3)}</span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {Object.entries(message.scores).map(([key, val]) => {
+                                                if (['final_score', 'total_score'].includes(key)) return null;
+                                                return (
+                                                    <div key={key} className="flex justify-between">
+                                                        <span className="text-slate-500 capitalize">{key.replace('_score', '')}</span>
+                                                        <span className="text-slate-300">{typeof val === 'number' ? val.toFixed(2) : val}</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                    
+                                    {message.reference_dimensions && (
+                                        <div className="pt-2 border-t border-white/10">
+                                            <div className="text-slate-400 font-bold mb-2">📸 参考图匹配度</div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {Object.entries(message.reference_dimensions).map(([key, val]) => (
+                                                    <div key={key} className="flex justify-between">
+                                                        <span className="text-slate-500 capitalize">{key.replace(/_/g, ' ')}</span>
+                                                        <span className="text-cyan-300">{typeof val === 'number' ? val.toFixed(2) : val}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {message.type === 'progress' && (
+                                <div className="mt-2 w-64">
+                                    <div className="flex justify-between text-xs mb-1 text-purple-300">
+                                        <span>正在渲染...</span>
+                                        <span>{Math.floor(message.progress || 0)}%</span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
+                                        <div 
+                                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300 ease-out"
+                                            style={{ width: `${message.progress || 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        function App() {
+            const [socket, setSocket] = useState(null);
+            
+            const [messages, setMessages] = useState([
+                {
+                    id: 'init-1',
+                    sender: 'system',
+                    senderName: '系统核心',
+                    type: 'text',
+                    content: 'Pygmalion 引擎已启动。多智能体协作环境准备就绪。\n我是您的调度员，您可以直接告诉我想要生成什么，或者在右侧面板调整详细参数。',
+                    timestamp: Date.now()
+                }
+            ]);
+            
+            const [input, setInput] = useState("");
+            const [showSettings, setShowSettings] = useState(false);
+            const [refImage, setRefImage] = useState(null);
+            const [serverRefImagePath, setServerRefImagePath] = useState(null);
+            const [isUploading, setIsUploading] = useState(false);
+            const [refImageExpanded, setRefImageExpanded] = useState(true);  // 参考图展开/折叠状态
+
+            const [config, setConfig] = useState({
+                targetScore: 0.85,
+                maxIterations: 5,
+                cfgScale: 7.0
+            });
+
+            // API Key States
+            const [apiKeys, setApiKeys] = useState({ modelScope: '', siliconFlow: '' });
+            const [isSavingKeys, setIsSavingKeys] = useState(false);
+
+            const messagesEndRef = useRef(null);
+            const fileInputRef = useRef(null);
+
+            const scrollToBottom = () => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            };
+
+            useEffect(() => {
+                scrollToBottom();
+            }, [messages]);
+
+            // Fetch Settings
+            useEffect(() => {
+                fetch('/api/settings')
+                    .then(res => res.json())
+                    .then(data => {
+                        setApiKeys({
+                            modelScope: data.EVAL_A_KEY || '',
+                            siliconFlow: data.EVAL_B_KEY || ''
+                        });
+                    })
+                    .catch(err => console.error("Failed to load settings", err));
+            }, []);
+
+            const handleSaveKeys = () => {
+                setIsSavingKeys(true);
+                fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        EVAL_A_KEY: apiKeys.modelScope,
+                        EVAL_B_KEY: apiKeys.siliconFlow
+                    })
+                })
+                .then(() => alert('配置已保存 (可能需要重启系统生效)')) 
+                .catch(err => alert('保存失败: ' + err))
+                .finally(() => setIsSavingKeys(false));
+            };
+
+            // Socket connection
+            useEffect(() => {
+                const newSocket = io();
+
+                const addMsg = (sender, senderName, content, type='text', extra={}) => {
+                    setMessages(prev => [...prev, {
+                        id: Date.now() + Math.random(),
+                        sender, senderName, content, type, timestamp: Date.now(), ...extra
+                    }]);
+                };
+
+                newSocket.on('connect', () => {
+                    addMsg('system', '系统核心', '服务器已连接。');
+                });
+                
+                newSocket.on('disconnect', () => {
+                    addMsg('system', '系统核心', '连接断开。');
+                });
+
+                newSocket.on('message', (payload) => {
+                    const { type, data } = payload;
+                    
+                    if (type === 'status_update') {
+                        if (data.progress !== undefined) {
+                            setMessages(prev => {
+                                const lastMsg = prev[prev.length - 1];
+                                if (lastMsg && lastMsg.type === 'progress') {
+                                    const updated = [...prev];
+                                    updated[prev.length - 1] = { ...lastMsg, progress: data.progress, content: data.status || lastMsg.content };
+                                    return updated;
+                                } else {
+                                    return [...prev, {
+                                        id: Date.now(),
+                                        sender: 'system',
+                                        senderName: '任务进度',
+                                        type: 'progress',
+                                        content: data.status || '处理中...',
+                                        progress: data.progress || 0,
+                                        timestamp: Date.now()
+                                    }];
+                                }
+                            });
+                        }
+                    } else if (type === 'suggestion') {
+                        addMsg('system', '创意中枢', data.suggestion);
+                    } else if (type === 'image_generated') {
+                        addMsg('artist', '艺术家', `迭代 #${data.iteration} 生成预览`, 'image', { imageUrl: data.image_path });
+                    } else if (type === 'score_update') {
+                        addMsg('critic', '综合评审', 
+                            `迭代 #${data.iteration} 评估完成\n评分: ${data.current_score.toFixed(3)}`, 
+                            'text', 
+                            { 
+                                scores: data.scores_detail || {}, 
+                                score: data.current_score,
+                                reference_dimensions: data.reference_dimensions || null
+                            }
+                        );
+                    } else if (type === 'completion') {
+                        addMsg('system', '调度员', 
+                            `任务完成! 最终得分: ${data.best_score.toFixed(3)}`,
+                            'image',
+                            { imageUrl: data.best_image }
+                        );
+                    } else if (type === 'error') {
+                        addMsg('system', '错误', data.message);
+                    }
+                });
+
+                setSocket(newSocket);
+                return () => newSocket.close();
+            }, []);
+
+            const handleSend = () => {
+                if (!input.trim() && !serverRefImagePath) return;
+                if (!socket?.connected) {
+                    alert('未连接到服务器');
+                    return;
+                }
+
+                setMessages(prev => [...prev, {
+                    id: Date.now(),
+                    sender: 'user',
+                    senderName: '我',
+                    content: input,
+                    type: 'text',
+                    timestamp: Date.now()
+                }]);
+                
+                setInput("");
+
+                const payload = {
+                    theme: input,
+                    target_score: parseFloat(config.targetScore),
+                    max_iterations: parseInt(config.maxIterations),
+                    reference_image_path: serverRefImagePath
+                };
+                
+                socket.emit('start_generation', payload);
+            };
+
+            const uploadImage = (file) => {
+                if (!file || !file.type.startsWith('image/')) return;
+                
+                setRefImage(URL.createObjectURL(file));
+                setIsUploading(true);
+                
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                fetch('/api/upload_reference', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    setIsUploading(false);
+                    if (data.success) {
+                        setServerRefImagePath(data.path);
+                    } else {
+                        alert('上传失败: ' + (data.error || '未知错误'));
+                        setRefImage(null);
+                    }
+                })
+                .catch(err => {
+                    setIsUploading(false);
+                    console.error(err);
+                    alert('上传出错: ' + err.message);
+                });
+            };
+
+            const handleImageUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) uploadImage(file);
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.add('border-purple-500', 'bg-purple-500/5');
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.remove('border-purple-500', 'bg-purple-500/5');
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.remove('border-purple-500', 'bg-purple-500/5');
+                
+                const files = e.dataTransfer.files;
+                for (let i = 0; i < files.length; i++) {
+                    if (files[i].type.startsWith('image/')) {
+                        uploadImage(files[i]);
+                        break;
+                    }
+                }
+            };
+
+            const handlePaste = (e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
+                        uploadImage(items[i].getAsFile());
+                        break;
+                    }
+                }
+            };
+
+            return (
+                <div className="flex h-screen bg-[#0f1115] text-slate-200 font-sans overflow-hidden">
+                    {/* Settings Sidebar */}
+                    <div className={`flex flex-col border-r border-white/5 bg-[#16191e] transition-all duration-300 ease-in-out ${showSettings ? 'w-80' : 'w-0 opacity-0 overflow-hidden'}`}>
+                        <div className="p-5 border-b border-white/5 flex justify-between items-center">
+                            <h2 className="font-bold text-slate-300 flex items-center gap-2">
+                                <Settings className="w-4 h-4" /> 全局参数
+                            </h2>
+                            <button onClick={() => setShowSettings(false)} className="hover:text-white"><X className="w-4 h-4"/></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-xs font-bold text-slate-500 uppercase">生成目标</label>
+                                <div>
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="text-slate-400">目标评分</span>
+                                        <span className="text-purple-400 font-mono">{config.targetScore}</span>
+                                    </div>
+                                    <input type="range" min="0.5" max="0.99" step="0.01" value={config.targetScore} onChange={(e) => setConfig({...config, targetScore: e.target.value})} className="w-full h-1.5 bg-[#0a0c10] rounded-full appearance-none cursor-pointer accent-purple-500" />
+                                </div>
+                                <div>
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="text-slate-400">最大迭代次数</span>
+                                        <span className="text-purple-400 font-mono">{config.maxIterations}</span>
+                                    </div>
+                                    <input type="range" min="1" max="20" value={config.maxIterations} onChange={(e) => setConfig({...config, maxIterations: e.target.value})} className="w-full h-1.5 bg-[#0a0c10] rounded-full appearance-none cursor-pointer accent-purple-500" />
+                                </div>
+                            </div>
+
+                            {/* API Key Configuration */}
+                            <div className="space-y-3 pt-6 border-t border-white/5">
+                                <label className="text-xs font-bold text-slate-500 uppercase">API 配置</label>
+                                
+                                <div className="space-y-2">
+                                    <label className="text-[10px] text-slate-400">ModelScope API Key (免费)</label>
+                                    <input 
+                                        type="password" 
+                                        value={apiKeys.modelScope}
+                                        onChange={e => setApiKeys({...apiKeys, modelScope: e.target.value})}
+                                        className="w-full bg-[#0a0c10] border border-white/10 rounded p-2 text-xs text-slate-300 focus:border-purple-500 outline-none"
+                                        placeholder="sk-..."
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] text-slate-400">SiliconFlow API Key (付费)</label>
+                                    <input 
+                                        type="password" 
+                                        value={apiKeys.siliconFlow}
+                                        onChange={e => setApiKeys({...apiKeys, siliconFlow: e.target.value})}
+                                        className="w-full bg-[#0a0c10] border border-white/10 rounded p-2 text-xs text-slate-300 focus:border-purple-500 outline-none"
+                                        placeholder="sk-..."
+                                    />
+                                </div>
+
+                                <button 
+                                    onClick={handleSaveKeys}
+                                    disabled={isSavingKeys}
+                                    className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded text-xs text-white font-bold transition-colors mt-2"
+                                >
+                                    {isSavingKeys ? '保存中...' : '保存配置'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Main Chat Area */}
+                    <div className="flex-1 flex flex-col relative bg-[#0f1115]">
+                        <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-[#16191e]/80 backdrop-blur-md z-10">
+                            <div className="flex items-center gap-3">
+                                <Bot className="w-6 h-6 text-purple-500" />
+                                <div>
+                                    <h1 className="font-bold text-slate-200">Pygmalion 协作组</h1>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${socket?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                                        <span className="text-[10px] text-slate-500 uppercase font-medium">
+                                            {socket?.connected ? '在线 - 核心引擎就绪' : '离线 - 正在重连'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-lg transition-colors ${showSettings ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-white/5 text-slate-400'}`}>
+                                <Settings className="w-5 h-5" />
+                            </button>
+                        </header>
+
+                        <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+                            <div className="max-w-4xl mx-auto pb-4">
+                                {messages.map(msg => <MessageBubble key={msg.id} message={msg} />)}
+                                <div ref={messagesEndRef} />
+                            </div>
+                        </div>
+
+                        <div className="p-6 pt-0 bg-gradient-to-t from-[#0f1115] to-transparent">
+                            {/* 参考图面板 - 改为可折叠 */}
+                            {refImage && (
+                                <div className="max-w-4xl mx-auto mb-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 p-3 rounded-xl border border-purple-500/30 shadow-lg transition-all duration-300">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                                            <span className="text-xs font-bold text-purple-400 uppercase">参考图已选</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => setRefImageExpanded(!refImageExpanded)}
+                                            className="p-1 hover:bg-white/10 rounded transition-colors text-slate-400 hover:text-slate-200"
+                                            title={refImageExpanded ? "折叠参考图" : "展开参考图"}
+                                        >
+                                            <svg className={`w-4 h-4 transition-transform ${refImageExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7-7m0 0l-7 7m7-7v12" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    
+                                    {/* 展开状态：显示参考图详情 */}
+                                    {refImageExpanded && (
+                                        <div className="flex items-start gap-3 pt-2">
+                                            <div className="relative shrink-0">
+                                                <img src={refImage} className="w-24 h-24 rounded-lg object-cover border border-purple-500/30" alt="参考图" />
+                                                {isUploading && <div className="absolute inset-0 rounded-lg bg-black/50 flex items-center justify-center"><span className="text-[10px] text-white">上传中...</span></div>}
+                                            </div>
+                                            <div className="flex flex-col gap-2 flex-1 pt-1">
+                                                <p className="text-xs text-slate-300">参考图将被用于评估生成结果的匹配度。系统会对比以下维度：</p>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <span className="text-[11px] text-purple-300 bg-purple-500/10 px-2 py-1 rounded">风格一致性</span>
+                                                    <span className="text-[11px] text-purple-300 bg-purple-500/10 px-2 py-1 rounded">姿态相似度</span>
+                                                    <span className="text-[11px] text-purple-300 bg-purple-500/10 px-2 py-1 rounded">构图匹配度</span>
+                                                    <span className="text-[11px] text-purple-300 bg-purple-500/10 px-2 py-1 rounded">角色保持</span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => { setRefImage(null); setServerRefImagePath(null); }} 
+                                                    className="bg-red-500/20 hover:bg-red-500/40 text-red-400 px-3 py-1 rounded text-xs font-bold transition-colors self-start mt-1"
+                                                >
+                                                    × 删除参考图
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* 折叠状态：显示简洁提示 */}
+                                    {!refImageExpanded && (
+                                        <div className="flex items-center gap-3 py-1">
+                                            <img src={refImage} className="w-8 h-8 rounded object-cover" alt="参考图缩略图" />
+                                            <span className="text-xs text-slate-400">参考图已加载，点击展开查看详情</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="max-w-4xl mx-auto bg-[#1e232b] rounded-2xl border border-white/10 shadow-2xl p-2 flex flex-col gap-2 relative">
+
+                                <textarea 
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}}
+                                    onPaste={handlePaste}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    placeholder="输入您的创意指令... (支持拖放或粘贴图片，Shift+Enter 换行)"
+                                    className="w-full bg-transparent border-none text-slate-200 p-3 max-h-32 focus:ring-0 outline-none resize-none placeholder:text-slate-600 transition-colors"
+                                />
+                                
+                                <div className="flex justify-between items-center px-2 pb-1">
+                                    <div className="flex gap-2">
+                                        <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors">
+                                            <Paperclip className="w-4 h-4" />
+                                        </button>
+                                        <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" hidden />
+                                    </div>
+                                    <button onClick={handleSend} disabled={(!input.trim() && !serverRefImagePath) || isUploading} className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all">
+                                        发送指令 <Send className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

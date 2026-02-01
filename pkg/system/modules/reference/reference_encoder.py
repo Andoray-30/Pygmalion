@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Tuple, Optional
+from typing import Iterable, List, Tuple, Optional, Union
 
 import torch
 from PIL import Image
@@ -40,6 +40,17 @@ class ReferenceImageEncoder:
             self._model.eval()
             self._processor = CLIPProcessor.from_pretrained(self.model_name)
 
+    @staticmethod
+    def _ensure_feature_tensor(output: Union[torch.Tensor, object]) -> torch.Tensor:
+        """兼容不同 transformers 版本的输出结构，确保返回张量特征。"""
+        if isinstance(output, torch.Tensor):
+            return output
+        if hasattr(output, "pooler_output") and output.pooler_output is not None:
+            return output.pooler_output
+        if hasattr(output, "last_hidden_state") and output.last_hidden_state is not None:
+            return output.last_hidden_state.mean(dim=1)
+        raise TypeError(f"Unexpected CLIP output type: {type(output)}")
+
     def encode(self, image_path: str, candidate_tags: Iterable[str], top_k: int = 6) -> ReferenceEncodingResult:
         """从参考图中提取最相关的语义标签
 
@@ -65,11 +76,11 @@ class ReferenceImageEncoder:
             image_inputs = {k: v.to(self.device) for k, v in image_inputs.items()}
             text_inputs = {k: v.to(self.device) for k, v in text_inputs.items()}
 
-            image_features = self._model.get_image_features(**image_inputs)
-            text_features = self._model.get_text_features(**text_inputs)
+            image_features = self._ensure_feature_tensor(self._model.get_image_features(**image_inputs))
+            text_features = self._ensure_feature_tensor(self._model.get_text_features(**text_inputs))
 
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            image_features = torch.nn.functional.normalize(image_features, p=2, dim=-1)
+            text_features = torch.nn.functional.normalize(text_features, p=2, dim=-1)
 
             similarity = (image_features @ text_features.T).squeeze(0)
             scores = similarity.detach().cpu().tolist()

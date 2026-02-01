@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pygmalion AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background: #0f1115; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-slate-200">
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+function App() {
+  const [messages, setMessages] = useState([
+    { id: 1, sender: 'system', name: '系统', text: 'Pygmalion 已就绪', time: new Date() }
+  ]);
+  const [input, setInput] = useState("");
+  const [socket, setSocket] = useState(null);
+  const messagesEnd = useRef(null);
+
+  useEffect(() => {
+    messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    const newSocket = io();
+    newSocket.on('connect', () => {
+      setMessages(p => [...p, { id: Date.now(), sender: 'system', name: '系统', text: '已连接', time: new Date() }]);
+    });
+    newSocket.on('message', (payload) => {
+      const { type, data } = payload;
+      if (type === 'score_update') {
+        setMessages(p => [...p, { 
+          id: Date.now(), 
+          sender: 'critic', 
+          name: '评审', 
+          text: `迭代 #${data.iteration} 评分: ${data.current_score?.toFixed(3)}`, 
+          time: new Date() 
+        }]);
+      }
+    });
+    setSocket(newSocket);
+    return () => newSocket.close();
+  }, []);
+
+  const handleSend = () => {
+    if (!input.trim() || !socket?.connected) return;
+    
+    setMessages(p => [...p, { id: Date.now(), sender: 'user', name: '我', text: input, time: new Date() }]);
+    socket.emit('start_generation', { theme: input, target_score: 0.85, max_iterations: 5 });
+    setInput("");
+  };
+
+  return (
+    <div className="h-screen flex flex-col bg-[#0f1115]">
+      <div className="h-16 border-b border-white/5 flex items-center px-6 bg-[#16191e]">
+        <h1 className="font-bold text-lg">Pygmalion AI</h1>
+        <span className={`ml-auto text-xs px-2 py-1 rounded ${socket?.connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+          {socket?.connected ? '在线' : '离线'}
+        </span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+        <div className="max-w-4xl mx-auto">
+          {messages.map(msg => (
+            <div key={msg.id} className={`mb-4 flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-md px-4 py-2 rounded-lg ${
+                msg.sender === 'user' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-[#1e232b] text-slate-200'
+              }`}>
+                <p className="text-xs font-bold mb-1 opacity-75">{msg.name} • {msg.time.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</p>
+                <p>{msg.text}</p>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEnd} />
+        </div>
+      </div>
+
+      <div className="p-4 bg-gradient-to-t from-[#0f1115] border-t border-white/5">
+        <div className="max-w-4xl mx-auto flex gap-2">
+          <input 
+            value={input} 
+            onChange={e => setInput(e.target.value)} 
+            onKeyDown={e => { if (e.key === 'Enter') handleSend(); }}
+            placeholder="输入指令..." 
+            className="flex-1 bg-[#1e232b] border border-white/10 rounded-lg px-4 py-2 text-slate-200 outline-none focus:border-purple-500 placeholder:text-slate-600"
+          />
+          <button 
+            onClick={handleSend}
+            disabled={!input.trim() || !socket?.connected}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-700 text-white rounded-lg font-bold text-sm"
+          >
+            发送
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+    </script>
+</body>
+</html>

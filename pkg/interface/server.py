@@ -10,6 +10,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+import atexit
 
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -83,10 +84,41 @@ def upload_reference():
         return jsonify({
             'success': True,
             'path': filepath,
-            'url': f"/outputs/{relative_path}"
+            'url': f"/outputs/{relative_path}",
+            'note': '该文件在使用完成后会自动删除'
         })
     except Exception as e:
         logger.error(f"❌ 参考图上传失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/cleanup_status', methods=['GET'])
+def cleanup_status():
+    """获取参考图清理状态"""
+    try:
+        ref_count = 0
+        ref_size = 0
+        
+        if os.path.exists(REFERENCE_UPLOAD_DIR):
+            for filename in os.listdir(REFERENCE_UPLOAD_DIR):
+                filepath = os.path.join(REFERENCE_UPLOAD_DIR, filename)
+                if os.path.isfile(filepath):
+                    ref_count += 1
+                    ref_size += os.path.getsize(filepath)
+        
+        # 检查清理线程是否运行
+        cleanup_running = cleanup_thread is not None and cleanup_thread.is_alive()
+        
+        return jsonify({
+            'success': True,
+            'reference_images_count': ref_count,
+            'reference_images_size_mb': round(ref_size / (1024*1024), 2),
+            'cleanup_thread_active': cleanup_running,
+            'cleanup_interval_seconds': 10,
+            'retention_time_seconds': 30
+        })
+    except Exception as e:
+        logger.error(f"❌ 获取清理状态失败: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # 配置 SocketIO
@@ -101,6 +133,55 @@ CORS(app)
 # 全局变量
 active_sessions = {}  # 存储活跃的生成会话
 pygmalion_core = None  # DiffuServoV4 核心系统
+cleanup_thread = None  # 文件清理线程
+
+
+def cleanup_reference_images():
+    """后台清理参考图任务 - 会话完成后自动删除"""
+    while True:
+        try:
+            time.sleep(10)  # 每10秒检查一次
+            
+            if not os.path.exists(REFERENCE_UPLOAD_DIR):
+                continue
+            
+            # 遍历 references 目录中的所有文件
+            for filename in os.listdir(REFERENCE_UPLOAD_DIR):
+                filepath = os.path.join(REFERENCE_UPLOAD_DIR, filename)
+                
+                if not os.path.isfile(filepath):
+                    continue
+                
+                # 检查文件是否被任何活跃会话使用
+                is_in_use = False
+                for session in active_sessions.values():
+                    if session.reference_image_path and session.reference_image_path == filepath:
+                        is_in_use = True
+                        break
+                
+                # 如果文件未被使用，删除它
+                if not is_in_use:
+                    try:
+                        file_age = time.time() - os.path.getmtime(filepath)
+                        # 只删除30秒前上传的未使用文件（给用户时间选择）
+                        if file_age > 30:
+                            os.remove(filepath)
+                            logger.info(f"🗑️ 已删除未使用的参考图: {filename}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ 清理文件失败: {filename} - {e}")
+        
+        except Exception as e:
+            logger.warning(f"⚠️ 清理线程错误: {e}")
+            time.sleep(60)
+
+
+def start_cleanup_thread():
+    """启动后台清理线程"""
+    global cleanup_thread
+    if cleanup_thread is None or not cleanup_thread.is_alive():
+        cleanup_thread = threading.Thread(target=cleanup_reference_images, daemon=True)
+        cleanup_thread.start()
+        logger.info("✅ 参考图清理线程已启动")
 
 
 class GenerationSession:
@@ -165,6 +246,8 @@ def init_pygmalion_core():
     try:
         pygmalion_core = DiffuServoV4()
         logger.info("✅ Pygmalion 核心系统已初始化")
+        # 启动后台清理线程
+        start_cleanup_thread()
         return True
     except Exception as e:
         logger.error(f"❌ 初始化失败: {e}")
@@ -176,7 +259,15 @@ def init_pygmalion_core():
 @app.route('/')
 def index():
     """主页"""
-    return render_template('index.html')
+    try:
+        # 切换回现代版本 (使用 send_from_directory 避免 Jinja2 冲突)
+        template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web', 'templates')
+        return send_from_directory(template_dir, 'index_modern.html')
+    except Exception as e:
+        print(f"ERROR SERVING INDEX: {e}")
+        import traceback
+        traceback.print_exc()
+        return str(e), 500
 
 
 @app.route('/api/status')
@@ -257,14 +348,15 @@ def handle_start_generation(data):
         target_score = float(data.get('target_score', 0.85))
         max_iterations = int(data.get('max_iterations', 5))
         quick_mode = data.get('quick_mode', True)
+        reference_image_path = data.get('reference_image_path', None)
         
         if not theme:
             emit('error', {'message': '主题不能为空'})
             return
         
-        # 创建新会话
+        # 创建新会话（包含参考图路径）
         session_id = str(uuid.uuid4())
-        session = GenerationSession(session_id, theme, target_score, max_iterations, quick_mode)
+        session = GenerationSession(session_id, theme, target_score, max_iterations, quick_mode, reference_image_path)
         session.client_sid = request.sid
         active_sessions[session_id] = session
         
@@ -274,7 +366,7 @@ def handle_start_generation(data):
             'message': f'🚀 生成任务已启动，主题: {theme}'
         })
         
-        logger.info(f"📝 新会话创建: {session_id} - 主题: {theme}")
+        logger.info(f"📝 新会话创建: {session_id} - 主题: {theme}" + (f" | 参考图: {reference_image_path}" if reference_image_path else ""))
         
         # 在后台线程中执行生成
         thread = threading.Thread(
@@ -488,7 +580,7 @@ def run_generation(session_id, session, theme):
         # 完成
         session.emit_message('completion', {
             'best_score': session.best_score,
-            'best_image': session.best_image,
+            'best_image': _path_to_url(session.best_image),
             'total_iterations': session.current_iteration,
             'total_images': len(session.images)
         })
@@ -504,6 +596,9 @@ def run_generation(session_id, session, theme):
     
     finally:
         session.is_running = False
+        # 会话完成后标记参考图为待删除
+        if session.reference_image_path:
+            logger.info(f"📌 会话 {session_id} 完成，参考图标记为可清理")
 
 
 def _get_deepseek_suggestion(theme):
@@ -541,6 +636,17 @@ def _path_to_url(path):
     except Exception as e:
         logger.warning(f"⚠️ 路径转换失败: {e}")
         return path
+
+
+def _jsonifyable(value):
+    """将 numpy/torch 标量转换为可 JSON 序列化的原生类型。"""
+    if isinstance(value, dict):
+        return {k: _jsonifyable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonifyable(v) for v in value]
+    if hasattr(value, "item") and callable(value.item):
+        return value.item()
+    return value
 
 
 def _generate_image(theme, suggestion, core_system=None):
@@ -600,7 +706,6 @@ def _evaluate_image(image_path, core_system=None, reference_image_path=None):
             image_path=image_path,
             target_concept=core_system.theme,
             concept_weight=0.5,
-            enable_smoothing=False,
             reference_image_path=ref_image
         )
         
@@ -622,6 +727,7 @@ def _evaluate_image(image_path, core_system=None, reference_image_path=None):
                 scores['composition_match'] = result.get('composition_match', 0)
                 scores['character_consistency'] = result.get('character_consistency', 0)
             
+            scores = _jsonifyable(scores)
             logger.info(f"✅ 评分完成: {scores}")
             return scores
         else:
@@ -762,6 +868,9 @@ if __name__ == '__main__':
     # 初始化核心系统（可选）
     if CORE_AVAILABLE:
         init_pygmalion_core()
+    else:
+        # 即使核心系统不可用也启动清理线程
+        start_cleanup_thread()
     
     # 启动 Flask-SocketIO 应用
     print(r"""

@@ -563,6 +563,12 @@ class DiffuServoV4:
             if reference_match is not None:
                 print(f" | 参考图{reference_match:.2f}", end="")
             print()
+            if reference_match is not None:
+                print(
+                    "    🧩 参考图分解: "
+                    f"风格{style_consistency:.2f} | 姿态{pose_similarity:.2f} | "
+                    f"构图{composition_match:.2f} | 角色{character_consistency:.2f}"
+                )
             
             if self.state_transition(current_score, concept, quality, aesthetics=aesthetics, reasonableness=reasonableness):
                 print(f" → 🎯 达到目标！")

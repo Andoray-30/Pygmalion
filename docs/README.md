@@ -1,4 +1,4 @@
-﻿#  Pygmalion AI
+#  Pygmalion AI
 
 **智能自适应图像生成系统** - AI 驱动的提示词优化 + 多模型评分 + 现代化 Web UI
 
@@ -12,7 +12,7 @@
 1. **环境配置**: 双击运行 `.\setup.bat` (一键安装环境、依赖与底模)。
 2. **系统启动**: 双击运行 `.\run_system.bat` (启动整个系统)。
 
-详细安装与配置指南请参阅 [QUICKSTART.md](QUICKSTART.md)
+详细安装与配置指南请参阅 [QUICKSTART.md](../QUICKSTART.md)
 
 ---
 
@@ -101,4 +101,4 @@ Pygmalion/
 ---
 
 ##  开源协议
-基于 MIT 协议开源。详见 [LICENSE](LICENSE)
+基于 MIT 协议开源。详见 [LICENSE](../LICENSE)

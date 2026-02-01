@@ -11,12 +11,18 @@ import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 import logging
+from typing import Union
 
 logger = logging.getLogger(__name__)
 
 
 class ReferenceImageMatcher:
     """评估生成图与参考图的匹配度"""
+    
+    # 类级别共享模型缓存（所有实例共用）
+    _shared_model = None
+    _shared_processor = None
+    _model_device = None
 
     def __init__(self, device: str | None = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -24,12 +30,36 @@ class ReferenceImageMatcher:
         self._processor = None
 
     def _lazy_load(self) -> None:
-        """懒加载模型"""
-        if self._model is None or self._processor is None:
-            self._model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
-            self._model.eval()
-            self._processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-            logger.info("✅ CLIP 模型已加载")
+        """懒加载模型（使用类级别缓存）"""
+        # 检查是否已有缓存且设备匹配
+        if (ReferenceImageMatcher._shared_model is None or 
+            ReferenceImageMatcher._model_device != self.device):
+            logger.info(f"🔄 首次加载 CLIP 模型到 {self.device}...")
+            ReferenceImageMatcher._shared_model = CLIPModel.from_pretrained(
+                "openai/clip-vit-base-patch32"
+            ).to(self.device)
+            ReferenceImageMatcher._shared_model.eval()
+            ReferenceImageMatcher._shared_processor = CLIPProcessor.from_pretrained(
+                "openai/clip-vit-base-patch32"
+            )
+            ReferenceImageMatcher._model_device = self.device
+            logger.info("✅ CLIP 模型已加载并缓存")
+        else:
+            logger.info("♻️ 复用已缓存的 CLIP 模型")
+        
+        self._model = ReferenceImageMatcher._shared_model
+        self._processor = ReferenceImageMatcher._shared_processor
+
+    @staticmethod
+    def _ensure_feature_tensor(output: Union[torch.Tensor, object]) -> torch.Tensor:
+        """兼容不同 transformers 版本的输出结构，确保返回张量特征。"""
+        if isinstance(output, torch.Tensor):
+            return output
+        if hasattr(output, "pooler_output") and output.pooler_output is not None:
+            return output.pooler_output
+        if hasattr(output, "last_hidden_state") and output.last_hidden_state is not None:
+            return output.last_hidden_state.mean(dim=1)
+        raise TypeError(f"Unexpected CLIP output type: {type(output)}")
 
     def evaluate_match(self, reference_image_path: str, generated_image_path: str) -> dict:
         """
@@ -103,12 +133,12 @@ class ReferenceImageMatcher:
             ref_inputs = self._processor(images=ref_image, return_tensors="pt").to(self.device)
             gen_inputs = self._processor(images=gen_image, return_tensors="pt").to(self.device)
 
-            ref_features = self._model.get_image_features(**ref_inputs)
-            gen_features = self._model.get_image_features(**gen_inputs)
+            ref_features = self._ensure_feature_tensor(self._model.get_image_features(**ref_inputs))
+            gen_features = self._ensure_feature_tensor(self._model.get_image_features(**gen_inputs))
 
-            # L2 归一化
-            ref_features = ref_features / ref_features.norm(dim=-1, keepdim=True)
-            gen_features = gen_features / gen_features.norm(dim=-1, keepdim=True)
+            # L2 归一化 (使用 torch.nn.functional.normalize)
+            ref_features = torch.nn.functional.normalize(ref_features, p=2, dim=-1)
+            gen_features = torch.nn.functional.normalize(gen_features, p=2, dim=-1)
 
             # 余弦相似度 (范围: -1 到 1，我们映射到 0-1)
             similarity = (ref_features @ gen_features.T).item()
@@ -134,34 +164,101 @@ class ReferenceImageMatcher:
             ref_mean = ref_features.mean(dim=1)  # (1, 768)
             gen_mean = gen_features.mean(dim=1)
 
-            ref_mean = ref_mean / ref_mean.norm(dim=-1, keepdim=True)
-            gen_mean = gen_mean / gen_mean.norm(dim=-1, keepdim=True)
+            # L2 归一化 (使用 torch.nn.functional.normalize)
+            ref_mean = torch.nn.functional.normalize(ref_mean, p=2, dim=-1)
+            gen_mean = torch.nn.functional.normalize(gen_mean, p=2, dim=-1)
 
             similarity = (ref_mean @ gen_mean.T).item()
             return max(0.0, min(1.0, (similarity + 1) / 2))
 
     def _compare_composition(self, ref_image: Image.Image, gen_image: Image.Image) -> float:
-        """计算构图相似度（边缘检测）"""
+        """计算构图相似度（多信号融合：边缘布局 + 梯度方向 + 低分辨率结构）"""
         ref_array = cv2.cvtColor(np.array(ref_image), cv2.COLOR_RGB2BGR)
         gen_array = cv2.cvtColor(np.array(gen_image), cv2.COLOR_RGB2BGR)
 
-        # 转灰度
+        # 转灰度并对齐尺寸
         ref_gray = cv2.cvtColor(ref_array, cv2.COLOR_BGR2GRAY)
         gen_gray = cv2.cvtColor(gen_array, cv2.COLOR_BGR2GRAY)
 
-        # Canny 边缘检测
-        ref_edges = cv2.Canny(ref_gray, 100, 200)
-        gen_edges = cv2.Canny(gen_gray, 100, 200)
+        if ref_gray.shape != gen_gray.shape:
+            gen_gray = cv2.resize(gen_gray, (ref_gray.shape[1], ref_gray.shape[0]), interpolation=cv2.INTER_AREA)
 
-        # 计算边缘匹配度
+        # 统一到较小尺寸，降低噪声并突出布局结构
+        target_size = (256, 256)
+        ref_small = cv2.resize(ref_gray, target_size, interpolation=cv2.INTER_AREA)
+        gen_small = cv2.resize(gen_gray, target_size, interpolation=cv2.INTER_AREA)
+
+        # Sobel 梯度（结构布局）
+        ref_gx = cv2.Sobel(ref_small, cv2.CV_32F, 1, 0, ksize=3)
+        ref_gy = cv2.Sobel(ref_small, cv2.CV_32F, 0, 1, ksize=3)
+        gen_gx = cv2.Sobel(gen_small, cv2.CV_32F, 1, 0, ksize=3)
+        gen_gy = cv2.Sobel(gen_small, cv2.CV_32F, 0, 1, ksize=3)
+
+        ref_mag = cv2.magnitude(ref_gx, ref_gy)
+        gen_mag = cv2.magnitude(gen_gx, gen_gy)
+
+        # 低分辨率布局网格（边缘密度/结构分布）
+        grid_size = (32, 32)
+        ref_grid = cv2.resize(ref_mag, grid_size, interpolation=cv2.INTER_AREA)
+        gen_grid = cv2.resize(gen_mag, grid_size, interpolation=cv2.INTER_AREA)
+
+        # 归一化后做余弦相似度
+        ref_grid_vec = ref_grid.flatten().astype(np.float32)
+        gen_grid_vec = gen_grid.flatten().astype(np.float32)
+        ref_norm = np.linalg.norm(ref_grid_vec)
+        gen_norm = np.linalg.norm(gen_grid_vec)
+        if ref_norm == 0 or gen_norm == 0:
+            grid_sim = 0.5
+        else:
+            grid_sim = float(np.dot(ref_grid_vec, gen_grid_vec) / (ref_norm * gen_norm))
+            grid_sim = max(0.0, min(1.0, (grid_sim + 1.0) / 2.0))
+
+        # 梯度方向直方图（结构方向一致性）
+        ref_angle = cv2.phase(ref_gx, ref_gy, angleInDegrees=True)
+        gen_angle = cv2.phase(gen_gx, gen_gy, angleInDegrees=True)
+
+        bins = 8
+        bin_edges = np.linspace(0, 360, bins + 1)
+        ref_hist = np.zeros(bins, dtype=np.float32)
+        gen_hist = np.zeros(bins, dtype=np.float32)
+
+        for i in range(bins):
+            ref_mask = (ref_angle >= bin_edges[i]) & (ref_angle < bin_edges[i + 1])
+            gen_mask = (gen_angle >= bin_edges[i]) & (gen_angle < bin_edges[i + 1])
+            ref_hist[i] = ref_mag[ref_mask].sum()
+            gen_hist[i] = gen_mag[gen_mask].sum()
+
+        ref_hist_sum = ref_hist.sum()
+        gen_hist_sum = gen_hist.sum()
+        if ref_hist_sum == 0 or gen_hist_sum == 0:
+            hist_sim = 0.5
+        else:
+            ref_hist /= ref_hist_sum
+            gen_hist /= gen_hist_sum
+            chi2 = 0.5 * np.sum(((ref_hist - gen_hist) ** 2) / (ref_hist + gen_hist + 1e-8))
+            hist_sim = max(0.0, min(1.0, 1.0 - chi2))
+
+        # 自适应 Canny 边缘（增强对结构轮廓的判别）
+        ref_med = np.median(ref_small)
+        gen_med = np.median(gen_small)
+        ref_low = int(max(0, 0.66 * ref_med))
+        ref_high = int(min(255, 1.33 * ref_med))
+        gen_low = int(max(0, 0.66 * gen_med))
+        gen_high = int(min(255, 1.33 * gen_med))
+
+        ref_edges = cv2.Canny(ref_small, ref_low, ref_high)
+        gen_edges = cv2.Canny(gen_small, gen_low, gen_high)
+
         intersection = np.logical_and(ref_edges, gen_edges).sum()
         union = np.logical_or(ref_edges, gen_edges).sum()
-
         if union == 0:
-            return 0.5
+            edge_iou = 0.5
+        else:
+            edge_iou = intersection / union
 
-        iou = intersection / union
-        return min(1.0, iou * 2)  # 缩放以获得更好的分布
+        # 综合评分（可调权重）
+        composition_score = (grid_sim * 0.5) + (hist_sim * 0.3) + (edge_iou * 0.2)
+        return float(max(0.0, min(1.0, composition_score)))
 
     def _compare_character_features(self, ref_image: Image.Image, gen_image: Image.Image) -> float:
         """计算角色一致性（色彩与纹理）"""
