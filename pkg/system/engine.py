@@ -28,6 +28,7 @@ from pkg.system.modules.evaluator import rate_image
 from pkg.infrastructure.health import check_forge_health
 from pkg.infrastructure.utils import compute_gradient
 from pkg.system.builders import ControlNetBuilder
+from pkg.system.modules.reference import analyze_reference_style_with_multimodal
 
 OUTPUT_DIR = "evolution_history"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -48,6 +49,7 @@ class DiffuServoV4:
         self.theme = theme
         self.reference_image_path = reference_image_path  # 新增：参考图路径
         self.reference_fusion = None
+        self.reference_style_analysis = None  # 新增：多模态分析结果
         
         # 🎯 [新增] 智能模型选择：根据主题推荐最佳底模
         print(f"\n🔍 分析主题并选择最佳模型...")
@@ -322,12 +324,42 @@ class DiffuServoV4:
         # [新增] 处理外部创意建议或用户实时反馈
         if external_suggestion:
             feedback_context = f"{feedback_context}\nExternal Insight/User Request: {external_suggestion}"
-
+        
+        # 🎨 [新增] 多模态参考图风格分析（替代硬编码检测）
+        style_context = ""
+        if reference_image_path and self.reference_style_analysis is None:
+            try:
+                print("🔄 [多模态分析] 分析参考图像风格...")
+                analysis = analyze_reference_style_with_multimodal(reference_image_path)
+                self.reference_style_analysis = analysis
+                
+                style_category = analysis.get("style_category", "unknown")
+                confidence = analysis.get("confidence", 0.0)
+                deepseek_hints = analysis.get("deepseek_hints", {})
+                recommended_model = analysis.get("recommended_model", "PREVIEW")
+                
+                # 构建风格上下文
+                style_context = f"\nREFERENCE IMAGE ANALYSIS: {style_category} ({confidence:.0%} confidence)"
+                if deepseek_hints.get("art_style"):
+                    style_context += f"\nArt Style: {deepseek_hints['art_style']}"
+                if deepseek_hints.get("visual_keywords"):
+                    style_context += f"\nVisual Keywords: {', '.join(deepseek_hints['visual_keywords'])}"
+                if deepseek_hints.get("emphasis"):
+                    style_context += f"\nEmphasis: {deepseek_hints['emphasis']}"
+                
+                # 根据推荐模型调整初始选择
+                if self.iteration == 1 and recommended_model in ["ANIME", "RENDER"]:
+                    self.initial_model_choice = recommended_model
+                    print(f"🎨 [多模态推荐] 使用 {recommended_model} 模型 ({style_category})")
+                
+            except Exception as e:
+                print(f"⚠️ [多模态分析异常] {e}，继续使用默认选择")
+        
         # 【关键改进】OPTIMIZE阶段禁用随机镜头，使用最佳方向
         if self.state == "OPTIMIZE" and self.locked_lens == "BEST_ACHIEVED":
-            core_prompt = self.brain.brainstorm_prompt(self.theme, feedback_context=feedback_context, use_random=False)
+            core_prompt = self.brain.brainstorm_prompt(self.theme, feedback_context=feedback_context + style_context, use_random=False)
         else:
-            core_prompt = self.brain.brainstorm_prompt(self.theme, feedback_context=feedback_context, use_random=True)                                   
+            core_prompt = self.brain.brainstorm_prompt(self.theme, feedback_context=feedback_context + style_context, use_random=True)                                   
         
         # 【改进】Prompt缓存：如果生成失败或停滞，回退到历史最佳
         if self.stagnation_count > 0 and self.best_prompt is not None:
