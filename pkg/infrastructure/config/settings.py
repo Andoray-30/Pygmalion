@@ -40,12 +40,10 @@ DEEPSEEK_TIMEOUT = _get_int("DEEPSEEK_TIMEOUT", 30)
 
 # Judge (Qwen) - 多模型评分池以充分利用2000次/天免费额度
 # 每个模型限额500次/天，轮换使用4个模型可达2000次/天
-# 📊 评分模型池 - 72B+多模态模型（精准度和推理能力均衡）
+# 📊 评分模型池 - 200B+多模态模型（更强推理与一致性）
 JUDGE_MODELS = {
-    "primary": "Qwen/Qwen2.5-VL-72B-Instruct",      # 🥇 主力：VL-72B (当前)
-    "backup1": "Qwen/QVQ-72B-Preview",              # 🥈 备用1：QVQ-72B (量化视觉)
-    "backup2": "OpenGVLab/InternVL3_5-241B-A28B",   # 🥉 备用2：241B (超强推理)
-    "backup3": "Qwen/Qwen3-VL-235B-A22B-Instruct"   # 🎖️ 备用3：235B (新一代)
+    "primary": "OpenGVLab/InternVL3_5-241B-A28B",   # 🥇 主力：241B (超强推理)
+    "backup1": "Qwen/Qwen3-VL-235B-A22B-Instruct"   # 🥈 备用：235B (新一代)
 }
 
 # 当前使用的评分模型（动态轮换）

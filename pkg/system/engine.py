@@ -27,6 +27,7 @@ from pkg.system.modules.creator import CreativeDirector
 from pkg.system.modules.evaluator import rate_image
 from pkg.infrastructure.health import check_forge_health
 from pkg.infrastructure.utils import compute_gradient
+from pkg.system.builders import ControlNetBuilder
 
 OUTPUT_DIR = "evolution_history"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -107,6 +108,9 @@ class DiffuServoV4:
         self.best_dimensions = {}  # 记录各维度的最佳分数
         self.stagnation_count = 0  # 停滞计数器（连续无进展的迭代数）
         self.stagnation_threshold = 8  # 【改进】停滞触发阈值：从6→8，给更多尝试空间
+        
+        # 🎨 ControlNet构建器
+        self.controlnet_builder = ControlNetBuilder()
         
         # � FINETUNE阶段低分回退机制
         self.finetune_low_score_count = 0  # 连续低分计数
@@ -391,6 +395,26 @@ class DiffuServoV4:
             "sd_model_checkpoint": target_model_file
         }
         
+        # 🎨 [新增] ControlNet约束（如果有参考图）
+        if reference_image_path:
+            try:
+                cn_builder = ControlNetBuilder()
+                cn_config = cn_builder.build(
+                    reference_image=reference_image_path,
+                    cn_type="canny",
+                    weight=0.8,
+                    guidance_start=0.0,
+                    guidance_end=0.8
+                )
+                # 将 ControlNet 配置合并到 params
+                if "alwayson_scripts" in cn_config:
+                    if "alwayson_scripts" not in self.params:
+                        self.params["alwayson_scripts"] = {}
+                    self.params["alwayson_scripts"].update(cn_config["alwayson_scripts"])
+                print(f"🎨 ControlNet 已激活: type=canny, weight=0.8, ref={reference_image_path}")
+            except Exception as e:
+                print(f"⚠️ ControlNet 激活失败: {e}，将继续使用纯文本约束")
+        
         # 📊 状态日志
         hr_status = "[HR ON]" if self.params.get('enable_hr') else "[HR OFF]"
         state_tag = f"[{self.state}]"
@@ -503,7 +527,7 @@ class DiffuServoV4:
             # 🎯 固定权重：保证评分的可比性
             concept_weight = 0.5  # 所有阶段使用统一权重
             
-            res = rate_image(img_path, self.theme, concept_weight=concept_weight, enable_smoothing=False, reference_image_path=self.reference_image_path)
+            res = rate_image(img_path, self.theme, concept_weight=concept_weight, reference_image_path=self.reference_image_path)
             if not isinstance(res, dict) or 'final_score' not in res:
                 print("⚠️ 评分失败，跳过")
                 continue

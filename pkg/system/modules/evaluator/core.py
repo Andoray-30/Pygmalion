@@ -272,6 +272,8 @@ CRITICAL RULES:
 - If Concept < 0.5, Final Score CANNOT exceed 0.6
 - If Reasonableness < 0.6, Final Score CANNOT exceed 0.75 (physics violations are serious)
 - Scores > 0.9 require ALL dimensions > 0.85
+- STRICTLY follow the rubric above. You MAY apply limited discretionary judgment only within ±0.05 of a dimension score
+  when clear, specific visual evidence justifies it. Any discretionary adjustment MUST be explained in the reason.
 - BE CALIBRATED. This is for optimization feedback.
 
 OUTPUT (JSON ONLY, NO MARKDOWN):

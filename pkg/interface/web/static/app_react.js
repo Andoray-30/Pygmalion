@@ -345,6 +345,7 @@ function App() {
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
 
+if (false) {
 const { useState, useEffect, useRef } = React;
 
 // --- 组件定义 ---
@@ -897,3 +898,4 @@ function App() {
 // 渲染
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
+}
