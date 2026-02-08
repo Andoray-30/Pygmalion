@@ -1,104 +1,128 @@
-#  Pygmalion AI
+# 📚 Pygmalion 文档中心
 
-**智能自适应图像生成系统** - AI 驱动的提示词优化 + 多模型评分 + 现代化 Web UI
-
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+完整的技术文档和开发指南。
 
 ---
 
-## ⚡ 快速开始
+## 🗺️ 文档导航
 
-1. **环境配置**: 双击运行 `.\setup.bat` (一键安装环境、依赖与底模)。
-2. **系统启动**: 双击运行 `.\run_system.bat` (启动整个系统)。
-
-详细安装与配置指南请参阅 [QUICKSTART.md](../QUICKSTART.md)
-
----
-
-##  核心特性
-
-| 特性 | 说明 |
+### 📖 入门文档
+| 文档 | 说明 |
 |------|------|
-|  **AI 创意引擎** | 集成 DeepSeek-V3 自动进行提示词工程与迭代优化 |
-|  **多模型评分** | 472B+ 级多模态模型 (Qwen2.5-VL 等) 自动轮换评分 |
-|  **对话式 UI** | 类似 Gemini 的现代化 Web 界面，支持实时反馈与交互 |
-|  **WebSocket 通信** | 基于 Socket.IO 的双向低延迟实时消息推送 |
-|  **最优解收敛** | 自动在多轮迭代中收敛至最佳画质与主题契合度 |
-|  **全自定义配置** | 支持在 Web 界面直接配置 API 密钥、模型 ID 与自定义网关 |
+| [README](../README.md) | 项目概览和特性介绍 |
+| [快速入门](../QUICKSTART.md) | 5分钟上手教程 |
 
 ---
 
-## 📂 项目结构 (pkg 架构)
+### 🏗️ 核心文档
+| 文档 | 说明 |
+|------|------|
+| [系统架构](ARCHITECTURE.md) | 完整技术架构设计 |
+| [核心包文档](../pkg/README.md) | 代码模块组织说明 |
 
-```text
-Pygmalion/
-  launch.py              # 系统入口
-  setup.bat              # 一键环境配置脚本
-  setup_environment.ps1  # 自动化逻辑
-  run_system.bat         # 一键启动脚本
-  requirements.txt       # 项目依赖
-  QUICKSTART.md          # 快速入门指南
+---
 
-  pkg/                   # 核心代码包
-     interface/         # 接口层 (Web/WebSocket)
-       server.py         # Flask-SocketIO 后端
-       web/             # 前端资源 (HTML/CSS/JS)
-   
-     system/            # 系统层 (Logic/Modules)
-       engine.py         # DiffuServoV4 核心控制器
-       modules/         # 功能模块 (Creator/Evaluator)
-   
-     infrastructure/    # 基础设施层 (Config/Utils)
-       config/          # 全局配置集
+### 🔧 配置文档
+| 文档 | 说明 |
+|------|------|
+| [配置系统](../pkg/infrastructure/config/README.md) | 环境变量和参数配置 |
+| [Forge 集成](../pkg/system/adapters/README.md) | Forge API 适配器 |
 
-  evolution_history/     # 图片生成演进记录 (输出目录)
-  Forge/                 # Stable Diffusion 后端集成目录
+---
+
+### 🧩 模块文档
+| 文档 | 说明 |
+|------|------|
+| [系统核心](../pkg/system/README.md) | DiffuServoV4 引擎和智能体 |
+| [创意生成](../pkg/system/modules/creator/README.md) | DeepSeek 驱动的 Prompt 生成 |
+| [图像评分](../pkg/system/modules/evaluator/README.md) | 多模态评分和模型轮换 |
+| [接口层](../pkg/interface/README.md) | Web UI 和 Socket.IO |
+
+---
+
+### 🧪 开发文档
+| 文档 | 说明 |
+|------|------|
+| [测试指南](../tests/README.md) | 单元测试和集成测试 |
+
+---
+
+## 🔍 按功能查找
+
+### 我想了解...
+
+**生成流程**
+→ [系统架构](ARCHITECTURE.md) > 工作流程章节
+
+**参考图约束**
+→ [系统核心](../pkg/system/README.md) > 参考图处理
+
+**评分机制**
+→ [图像评分](../pkg/system/modules/evaluator/README.md) > 五维评分
+
+**模型选择**
+→ [创意生成](../pkg/system/modules/creator/README.md) > 意图分析
+
+**API 配置**
+→ [配置系统](../pkg/infrastructure/config/README.md) > 环境变量
+
+---
+
+## 🛠️ 常用命令速查
+
+### 启动服务
+```bash
+python launch.py              # 启动 Pygmalion
+cd Forge/webui && webui.bat   # 启动 Forge
+```
+
+### 测试
+```bash
+pytest tests/                 # 运行所有测试
+python test_optimization.py   # 运行优化测试
+```
+
+### 配置
+```bash
+cp .env.example .env          # 复制配置模板
+nano .env                     # 编辑配置
 ```
 
 ---
 
-##  评分模型轮换系统
+## 📊 性能优化指南
 
-为了最大化利用免费 API 额度并保证评分精度，系统内置了模型轮换机制：
+### 提升生成速度
+1. 降低分辨率（832×1216 → 768×1024）
+2. 减少步数（28 → 20）
+3. 使用 PREVIEW 模型（1步快速预览）
 
-- **主力模型**: `Qwen2.5-VL-72B-Instruct`
-- **轮换池**: 包括 `QVQ-72B-Preview`, `InternVL3.5`, `Qwen3-VL` 等。
-- **机制**: 默认每 150 次调用自动切换模型，充分利用 ModelScope 的 2000次/天 免费额度。
-- **降级**: 当 ModelScope 达到限额或不可用时，自动 Fallback 到 SiliconFlow 付费接口。
-
----
-
-##  实时消息协议
-
-系统通过 WebSocket 推送以下核心事件：
-- `status_update`: 全局运行状态
-- `suggestion`: DeepSeek 提供的创意优化建议
-- `image_generated`: 单次迭代图片生成路径
-- `evaluation`: 多维度（画质、美学、合理性等）详细评分反馈
-- `score_update`: 当次迭代分数及是否破纪录的状态更新
-- `completion`: 最终生成报告
+### 提升生成质量
+1. 提高目标评分（0.85 → 0.90）
+2. 增加迭代次数（5 → 10）
+3. 使用参考图约束
+4. 启用 HR 放大（自动触发）
 
 ---
 
-##  后端技术栈
+## ⚠️ 故障排查
 
-- **Web 框架**: Flask & Flask-SocketIO
-- **核心逻辑**: Python 3.10+
-- **生成引擎**: DiffuServo Architecture (集成 Stable Diffusion WebUI Forge)
-- **大模型支持**: DeepSeek-V3 (创意), Qwen2.5-VL-72B (视觉评分)
-
----
-
-##  更新日志
-
-### [1.1.0] - 2026-01-29
--  **架构重构**: 迁移至 `pkg` 命名空间结构。
--  **UI 升级**: 实现 Google Material Design / Gemini 风格对话界面。
--  **设置面板**: 新增 Web 端 API 与模型自定义配置功能。
--  **反馈循环**: 修复了迭代计数与评分显示的准确性问题。
+### 常见错误
+| 错误 | 文档链接 |
+|------|----------|
+| Forge 连接失败 | [接口层文档](../pkg/interface/README.md#常见问题) |
+| API 密钥无效 | [配置系统](../pkg/infrastructure/config/README.md#环境变量) |
+| 模型错误切换 | [系统核心](../pkg/system/README.md#常见问题) |
+| 显存不足 | [系统架构](ARCHITECTURE.md#性能优化) |
 
 ---
 
-##  开源协议
-基于 MIT 协议开源。详见 [LICENSE](../LICENSE)
+## 🤝 贡献文档
+
+文档改进建议？欢迎提交 Pull Request！
+
+**文档规范：**
+- 使用 Markdown 格式
+- 代码示例需包含完整上下文
+- 添加目录和跳转链接
+- 保持简洁清晰

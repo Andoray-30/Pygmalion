@@ -29,6 +29,7 @@ from pkg.infrastructure.health import check_forge_health
 from pkg.infrastructure.utils import compute_gradient
 from pkg.system.builders import ControlNetBuilder
 from pkg.system.modules.reference import analyze_reference_style_with_multimodal
+from pkg.system.initializer import EngineInitializer
 
 OUTPUT_DIR = "evolution_history"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -47,42 +48,29 @@ class DiffuServoV4:
         # 🧠 初始化创意大脑
         self.brain = CreativeDirector()
         self.theme = theme
-        self.reference_image_path = reference_image_path  # 新增：参考图路径
+        self.reference_image_path = reference_image_path
         self.reference_fusion = None
-        self.reference_style_analysis = None  # 新增：多模态分析结果
+        self.user_request = theme
         
-        # 🎯 [新增] 智能模型选择：根据主题推荐最佳底模
-        print(f"\n🔍 分析主题并选择最佳模型...")
-        model_recommendation = self.brain.analyze_theme_and_recommend_model(theme)
-        self.initial_model_choice = model_recommendation.get("model", "PREVIEW")
+        # 🎯 初始化参考图和模型选择
+        init_result = EngineInitializer.initialize_reference_model(
+            self.brain, theme, reference_image_path
+        )
+        self.initial_model_choice = init_result["initial_model_choice"]
+        self.model_locked = init_result["model_locked"]
+        self.locked_model = init_result["locked_model"]
+        self.reference_style_analysis = init_result["reference_style_analysis"]
         
-        # 🏷️ 生成英文项目名（DeepSeek）并固定本次运行
-        raw_name = self.brain.generate_project_name(self.theme)
-        raw_name = (raw_name or "untitled_project").strip()
-        safe_name = re.sub(r"\s+", "_", raw_name)
-        safe_name = re.sub(r"[^A-Za-z0-9_]+", "", safe_name)
-        if not safe_name:
-            safe_name = "untitled_project"
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.project_id = f"{safe_name}_{timestamp}"
+        # 🎯 参考图约束配置
+        self.reference_match_min = 0.70  # 基础阈值
+        self.reference_controlnet_weight = 1.0  # 基础权重
+        self.keep_unchanged_intent = False
         
-        self.params = {
-            "prompt": f"cinematic shot of {theme}, misty sunbeams, lush foliage, volumetric light, 8k, masterpiece, sharp focus, highly detailed",
-            "negative_prompt": "text, watermark, blurry, noise, distortion, ugly, low quality, jpeg artifacts, grain, nsfw",
-            "steps": 20,  # 增加步数以获得更好质量，防止 Turbo 模式过快导致的潜在问题
-            "cfg_scale": 7.0,  # 标准 CFG
-            "width": 832,   # SDXL 推荐分辨率
-            "height": 1216, # SDXL 推荐分辨率
-            "sampler_name": "Euler a", # 更稳健的采样器
-            "scheduler": "Simple", # 标准调度器
-            "seed": -1,
-            "enable_hr": False,
-            "hr_scale": 1.5,
-            "hr_upscaler": "R-ESRGAN 4x+",
-            "hr_second_pass_steps": 10,
-            "denoising_strength": 0.35,
-            "hr_additional_modules": []
-        }
+        # 🏷️ 生成项目 ID
+        self.project_id = EngineInitializer.generate_project_id(self.brain, self.theme)
+        
+        # 📋 初始化参数
+        self.params = EngineInitializer.get_default_params(theme)
         
         # 🔴 状态追踪
         self.state = self.STATE_INIT
@@ -294,12 +282,24 @@ class DiffuServoV4:
         # [关键修复] 增加内部迭代计数，确保模型切换逻辑生效
         self.iteration += 1
         
+        # 🎯 检测external_suggestion中的"保持不变"意图
+        if external_suggestion and reference_image_path:
+            keep_keywords = ["保持", "不变", "维持", "固定", "一致", "keep", "unchanged", "maintain"]
+            if any(keyword in external_suggestion.lower() for keyword in keep_keywords):
+                if not self.keep_unchanged_intent:
+                    self.keep_unchanged_intent = True
+                    self.reference_match_min = 0.75
+                    self.reference_controlnet_weight = 1.3
+                    print("🔒 检测到反馈中的\"保持不变\"意图，已强化参考约束")
+        
         # 🎯 [核心改进] 如果收到重大用户建议，尝试重新分析模型意图
         if external_suggestion and len(external_suggestion) > 10:
             print(f"🔄 [动态分析] 收到重大反馈，尝试重新评估模型建议...")
             re_rec = self.brain.analyze_theme_and_recommend_model(f"{self.theme} (Feedback: {external_suggestion})")
             new_model = re_rec.get("model", "PREVIEW")
-            if new_model != self.initial_model_choice:
+            if self.model_locked:
+                print(f"🔒 [模型锁定] 已锁定为 {self.locked_model}，忽略反馈切换到 {new_model}")
+            elif new_model != self.initial_model_choice:
                 print(f"🎯 [模型切换] 从 {self.initial_model_choice} 切换到 {new_model} 以响应反馈")
                 self.initial_model_choice = new_model
 
@@ -514,6 +514,16 @@ class DiffuServoV4:
             self.target_score = float(target_score)
         if max_iterations is not None:
             self.max_iterations = int(max_iterations)
+
+        # 🎯 意图检测：识别"保持不变"需求
+        keep_keywords = ["保持", "不变", "维持", "固定", "锁定", "一致", "keep", "unchanged", "maintain", "consistent"]
+        if self.reference_image_path and any(keyword in self.theme.lower() for keyword in keep_keywords):
+            self.keep_unchanged_intent = True
+            self.reference_match_min = 0.80  # 提升硬约束到80%
+            self.reference_controlnet_weight = 1.5  # 提升ControlNet权重到1.5
+            print("🔒 检测到\"保持不变\"意图，已提升参考图约束强度")
+            print(f"   - ControlNet权重: 1.0 → 1.5")
+            print(f"   - 参考匹配阈值: 0.70 → 0.80")
 
         print("🚀 DiffuServo V4 启动：智能自适应控制（自动早停）")
         print(f"   目标分数: {self.target_score}")
